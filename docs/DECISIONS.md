@@ -145,3 +145,40 @@ the chase rule rejects about 96% of signals. The few fills that remain are the
 trades where the price did *not* run away, which are disproportionately the
 wallets' wrong calls (gross ROI of the filled subset is about -18% in the
 skilled world). The fill-rate and latency gates must catch this. Phase 5 tests it.
+
+## D25. Placebo is matched on activity AND entry-price profile
+The spec matches placebo wallets on trade count. Phase 2 showed that a
+miscalibrated market (favorite-longshot bias) makes *price level* look like skill
+(D10). Each selected wallet is therefore replaced by a random eligible,
+non-selected wallet from the same activity quintile and mean-entry-price tercile,
+with fallback to the activity bucket only. The comparison is "skill vs. a similar
+wallet", not "skill vs. any wallet".
+
+## D26. A fast in-memory engine for placebo and stress runs, proven identical
+200 placebo draws through the SQLite-backed replay would take minutes per
+evaluation. `execution/fastsim.py` re-implements the same logic in memory using
+the same book, fee and synthetic-book functions. `tests/execution/test_fastsim.py`
+requires it to match `replay` exactly (fills, skips, settlements, ROI to 1e-9)
+under normal, high-latency and stress settings.
+
+## D27. Losing streaks are counted per market (gate 10)
+The first full evaluation of a skilled world failed gate 10 with a 10-trade losing
+streak against a p99 of 9. Copies in the same market resolve together with one
+outcome, which inflates trade-level streaks. Per market (the unit of observation,
+D1) the streak was 8. Drawdown stays trade-level (it is equity).
+
+## D28. Simulation admissibility is separate from real decisions
+The acceptance tests measure gates 2 to 12 (and gate 1's duration) on synthetic
+evidence via `admissibility="simulation"`. Every real evaluation uses `strict`,
+under which only `live_forward` evidence can pass gate 1. Synthetic and backtest
+evidence can never promote past Common.
+
+## D29. Run-time leakage self-check on real data
+`polybot backtest` flips every future outcome and perturbs every future trade for
+the first epoch, and requires an identical selection. A failure counts toward
+gate 12 and the data-integrity kill switch.
+
+## D30. Kill switches halt new risk until a human clears them
+A trigger stores a halt in the database. The executor then skips every new entry
+signal (`halted:<reason>`) while still logging wallet exits. `polybot resume --note`
+clears it, and the note is kept in the anomaly log.

@@ -184,6 +184,9 @@ class PaperExecutor:
     ) -> Outcome:
         if self.store.signal_exists(s.strategy, s.wallet_trade_key):
             return Outcome("duplicate", "already_processed")
+        halted = self.store.get_halt()
+        if halted is not None and s.kind == "entry":
+            return self._skip(s, f"halted:{halted}")  # kill switch: no new risk
         if s.kind == "info_exit":
             sid, _ = self.store.record_signal_and_fill(
                 self._signal_row(s, "info", "wallet_exit_not_mirrored"), None

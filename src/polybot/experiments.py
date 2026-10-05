@@ -226,3 +226,83 @@ def selection_bias_over_seeds(
             summary[sel]["skilled_selected"] = agg(sel, ("skilled_selected",))
             summary[sel]["skilled_eligible"] = agg(sel, ("skilled_eligible",))
     return summary
+
+
+# --- Phase 5: full-pipeline acceptance (false-promotion rate, power) -------------------
+
+
+def _acceptance_one(args: tuple[Config, int, str, float, str | None]) -> dict[str, Any]:
+    from polybot.backtest import run_backtest
+    from polybot.config import config_hash
+    from polybot.data.synthetic import generate_world
+    from polybot.execution.replay import drift_price_fn
+
+    cfg, seed, world, latency_ratio, price_model = args
+    sc = cfg.synthetic
+    wd = generate_world(sc, seed, world, price_model)  # type: ignore[arg-type]
+    half_life = cfg.execution.latency_L_s / latency_ratio  # d/h = latency_ratio at 1xL
+    start = T0 + cfg.walkforward.trailing_window_days * DAY
+    end = T0 + sc.horizon_days * DAY
+    r = run_backtest(
+        wd.trades,
+        wd.wf_markets,
+        cfg,
+        start_ts=start,
+        end_ts=end,
+        price_at=drift_price_fn(wd.markets, half_life),
+        mode="synthetic",
+        seed=seed,
+        config_hash=config_hash(cfg),
+        admissibility="simulation",
+        lazy_placebo=True,
+    )
+    return {
+        "seed": seed,
+        "promoted": r.promoted,
+        "gates": {g.name: g.passed for g in r.gates},
+        "placebo_computed": r.placebo_computed,
+        "settled_trades": len(r.evidence.trades),
+        "roi": None
+        if r.evidence.trades.empty
+        else _r(float(r.evidence.trades["net_pnl"].sum() / r.evidence.trades["stake"].sum())),
+    }
+
+
+def acceptance(
+    cfg: Config,
+    seeds: list[int],
+    world: World,
+    latency_ratio: float,
+    price_model: str | None = None,
+    workers: int = 1,
+) -> dict[str, Any]:
+    """Run the FULL pipeline + all paper gates (simulation admissibility) over seeds."""
+    jobs = [(cfg, s, world, latency_ratio, price_model) for s in seeds]
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            runs = list(pool.map(_acceptance_one, jobs))
+    else:
+        runs = [_acceptance_one(j) for j in jobs]
+    n = len(runs)
+    k = sum(r["promoted"] for r in runs)
+    lo, hi = wilson_ci(k, n)
+    names = list(runs[0]["gates"]) if runs else []
+    return {
+        "experiment": "acceptance",
+        "world": world,
+        "latency_ratio_d_over_h": latency_ratio,
+        "price_model": price_model or cfg.synthetic.price_model,
+        "n_seeds": n,
+        "promoted": k,
+        "promotion_rate": _r(k / n) if n else None,
+        "promotion_rate_wilson95": [_r(lo), _r(hi)],
+        "gate_pass_rate": {g: _r(float(np.mean([r["gates"][g] for r in runs]))) for g in names},
+        "seeds_with_settled_trades": sum(1 for r in runs if r["settled_trades"]),
+        "mean_roi_when_traded": _r(float(np.mean([r["roi"] for r in runs if r["roi"] is not None])))
+        if any(r["roi"] is not None for r in runs)
+        else None,
+        "placebo_computed": sum(r["placebo_computed"] for r in runs),
+        "runs": runs,
+    }

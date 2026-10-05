@@ -251,9 +251,88 @@ def walkforward(
 
 
 @app.command()
-def backtest(days: int = 90) -> None:
-    """Walk-forward OOS backtest incl. placebo and stress tests."""
-    _not_yet("backtest", 5)
+def backtest(
+    days: int = typer.Option(90, "--days", help="evaluation span after the trailing window"),
+    config: Path | None = ConfigOpt,
+) -> None:
+    """Walk-forward OOS backtest on local history: tape-priced fills, stress, placebo, gates.
+
+    Backtest evidence can reach tier Common (S0) at most; gate 1 needs live_forward."""
+    from polybot.backtest import run_backtest
+    from polybot.data.store import Store
+    from polybot.execution.replay import tape_price_fn
+    from polybot.gates.ladder import kill_switches, ladder
+    from polybot.selection.walkforward import Epoch, leakage_selfcheck
+
+    cfg = load_config(config)
+    h = config_hash(cfg)
+    trades, markets = _frames(cfg)
+    if trades.empty:
+        typer.echo(
+            "No trades in the database. Run `polybot backfill` / `history import`.", err=True
+        )
+        raise typer.Exit(code=1)
+    end = int(trades["ts"].max()) + 1
+    start = end - days * 86_400
+    ep0 = Epoch(0, start, start + cfg.walkforward.epoch_days * 86_400)
+    leaks = leakage_selfcheck(trades, markets, cfg, ep0, cfg.seed)
+    with Store(ROOT / cfg.storage.db_path) as st:
+        drift = st.drift_count_since(_now() - cfg.gates.schema_drift_lookback_days * 86_400)
+    r = run_backtest(
+        trades,
+        markets,
+        cfg,
+        start_ts=start,
+        end_ts=end,
+        price_at=tape_price_fn(trades),
+        mode="backtest",
+        seed=cfg.seed,
+        config_hash=h,
+        leakage_failures=leaks,
+        recent_drift_errors=drift,
+    )
+    lad = ladder(r.evidence, cfg)
+    out = {
+        "config_hash": h,
+        "evidence_mode": "backtest",
+        "start_ts": start,
+        "end_ts": end,
+        "ladder": lad.as_dict(),
+        "kill_switches": [k.__dict__ for k in kill_switches(r.evidence, cfg)],
+        "replay_summary": r.extras["replay_summary"],
+        "stress": r.extras["stress"],
+        "walkforward": r.extras["walkforward_aggregate"],
+        "placebo": {
+            "n": len(r.evidence.placebo_rois or ()),
+            "rois": list(r.evidence.placebo_rois or ()),
+        },
+        "note": "Backtest evidence is capped at tier Common. Fills use the trade tape plus a "
+        "SYNTHETIC spread/depth assumption (docs/ASSUMPTIONS.md section 7).",
+    }
+    (ROOT / "out").mkdir(exist_ok=True)
+    (ROOT / "out" / "backtest.json").write_text(json.dumps(out, indent=1, default=str))
+    typer.echo(f"tier={lad.tier} next={lad.next_tier} promoted={r.promoted}")
+    for g in r.gates:
+        typer.echo(f"  {'PASS' if g.passed else 'fail'}  {g.name:28s} {g.observed}")
+    typer.echo("Wrote out/backtest.json. `polybot gates --explain` for plain language.")
+
+
+@app.command()
+def resume(
+    note: str = typer.Option(..., "--note", help="what you reviewed and why it is OK"),
+    config: Path | None = ConfigOpt,
+) -> None:
+    """Clear a kill-switch halt after manual review (the note is logged)."""
+    from polybot.data.store import Store
+
+    cfg = load_config(config)
+    with Store(ROOT / cfg.storage.db_path) as st:
+        h = st.get_halt()
+        if h is None:
+            typer.echo("Not halted.")
+            return
+        st.clear_halt(f"cleared '{h}': {note}")
+    typer.echo(f"Halt '{h}' cleared. Logged.")
 
 
 @app.command()
@@ -279,21 +358,21 @@ def simulate(
     world: str = typer.Option("null", "--world", help="null | skilled"),
     seeds: int = typer.Option(300, "--seeds"),
     latency_ratio: float = typer.Option(
-        0.1, "--latency-ratio", help="used from Phase 4/5 (execution + gates)"
+        0.1, "--latency-ratio", help="latency / information half-life (d/h)"
     ),
     price_model: str | None = typer.Option(
         None, "--price-model", help="calibrated | additive (default: config)"
+    ),
+    acceptance_run: bool = typer.Option(
+        True, "--acceptance/--no-acceptance", help="full pipeline + all gates (simulation mode)"
     ),
     demo_seeds: int = typer.Option(
         50, "--demo-seeds", help="seeds for the naive-vs-BH selection demo"
     ),
     config: Path | None = ConfigOpt,
 ) -> None:
-    """Synthetic-world validation: p-value calibration + selection-bias demo.
-
-    Phase 2 scope. Full pipeline + gates + latency (false-promotion rate, power)
-    are added in Phase 5.
-    """
+    """Synthetic validation: p-value calibration, selection-bias demo, and the full
+    pipeline + all paper gates (false-promotion rate / power) at d/h = latency_ratio."""
     from polybot.data.synthetic import World
     from polybot.experiments import null_calibration, selection_bias_over_seeds
 
@@ -308,10 +387,16 @@ def simulate(
     result["selection_bias"] = selection_bias_over_seeds(
         cfg, seed_list[:demo_seeds], wld, price_model
     )
-    result["note"] = (
-        f"latency_ratio={latency_ratio} not used until Phase 4/5; "
-        "gates/false-promotion rate not yet implemented"
-    )
+    if acceptance_run:
+        import os
+
+        from polybot.experiments import acceptance
+
+        acc = acceptance(
+            cfg, seed_list, wld, latency_ratio, price_model, workers=os.cpu_count() or 1
+        )
+        acc.pop("runs")
+        result["acceptance"] = acc
     text = json.dumps(result, indent=1, sort_keys=True)
     out = ROOT / "out"
     out.mkdir(exist_ok=True)
@@ -321,9 +406,37 @@ def simulate(
 
 
 @app.command()
-def gates(explain: bool = typer.Option(False, "--explain")) -> None:
-    """Print every gate: observed vs threshold, plain-language explanation."""
-    _not_yet("gates", 5)
+def gates(
+    explain: bool = typer.Option(False, "--explain"),
+    source: Path = typer.Option(
+        ROOT / "out" / "backtest.json", "--from", help="report.json or backtest.json"
+    ),
+) -> None:
+    """Print every gate: observed vs threshold, pass/fail, plain-language explanation."""
+    from polybot.gates.gates import EXPLAIN
+
+    if not source.exists():
+        typer.echo(
+            f"{source} not found. Run `polybot backtest` or `polybot report` first.", err=True
+        )
+        raise typer.Exit(code=1)
+    data = json.loads(source.read_text())
+    lad = data["ladder"]
+    typer.echo(
+        f"Evidence: {data.get('evidence_mode')}   tier: {lad['tier']}   next: {lad['next_tier']}"
+    )
+    for g in lad["gates"]:
+        typer.echo(f"\n[{'PASS' if g['passed'] else 'FAIL'}] {g['name']}")
+        typer.echo(f"   observed : {g['observed']}")
+        typer.echo(f"   threshold: {g['threshold']}")
+        if explain:
+            typer.echo(f"   why      : {EXPLAIN.get(g['name'], '')}")
+            if g.get("detail"):
+                typer.echo(f"   detail   : {g['detail']}")
+    typer.echo("\nBlocking the next tier: " + ", ".join(b["name"] for b in lad["blocking_next"]))
+    typer.echo("\nManual real-money checklist (cannot be automated):")
+    for c in lad["manual_checklist"]:
+        typer.echo(f"  [ ] {c['item']}")
 
 
 if __name__ == "__main__":

@@ -377,6 +377,26 @@ class Store:
             self.conn,
         )
 
+    # --- kill-switch halt (paper-mode enforcement) ----------------------------------
+    def set_halt(self, reason: str) -> None:
+        with self.tx() as c:
+            c.execute(
+                "INSERT INTO meta(key, value) VALUES ('halted', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (reason,),
+            )
+        self.log_anomaly("kill_switch", reason)
+
+    def get_halt(self) -> str | None:
+        row = self.conn.execute("SELECT value FROM meta WHERE key='halted'").fetchone()
+        return None if row is None else str(row[0])
+
+    def clear_halt(self, note: str) -> None:
+        """Manual review only (CLI). The clearing note is kept in the anomaly log."""
+        with self.tx() as c:
+            c.execute("DELETE FROM meta WHERE key='halted'")
+        self.log_anomaly("kill_switch_cleared", note)
+
     # --- bookkeeping -----------------------------------------------------------
     def get_cursor(self, job: str) -> dict[str, Any] | None:
         row = self.conn.execute(

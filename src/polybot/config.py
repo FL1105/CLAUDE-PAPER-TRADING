@@ -66,6 +66,7 @@ class StatsConfig(_Frozen):
     naive_top_n: int = Field(ge=1)
     bootstrap_resamples: int = Field(ge=1000)
     small_n_exact_threshold: int = Field(ge=0)
+    selection_mc_sims: int = Field(ge=100)
 
 
 class FiltersConfig(_Frozen):

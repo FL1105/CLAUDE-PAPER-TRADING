@@ -42,6 +42,8 @@ stats:
   naive_top_n: 20                   # size of the naive "top by PnL" contrast list
   bootstrap_resamples: 5000
   small_n_exact_threshold: 30       # below this many markets, use exact/permutation p-values
+  selection_mc_sims: 500            # MC sims for small-n p-values inside selection (those
+                                    # wallets are ineligible anyway; reported, not selected)
 
 filters:
   min_resolved_markets: 30

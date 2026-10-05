@@ -97,6 +97,8 @@ class Selection:
     cap: float
     diagnostics: dict[str, Any] = field(default_factory=dict)
     edges: pd.DataFrame | None = None
+    # eligible wallets with their (n_markets, mean_entry_price) profile: placebo pool
+    eligible: dict[str, tuple[int, float]] = field(default_factory=dict)
 
 
 Selector = Callable[[DataView, Epoch], Selection]
@@ -124,7 +126,7 @@ def select_wallets(view: DataView, epoch: Epoch, cfg: Config, seed: int) -> Sele
         cap_quantile=st.stake_cap_quantile,
         small_n_exact_threshold=st.small_n_exact_threshold,
         seed=seed,
-        n_mc=cfg.synthetic.calibration_mc_sims,
+        n_mc=st.selection_mc_sims,
     )
     e = elig.edges
     cand = e.loc[e["wallet"].isin(elig.eligible)].reset_index(drop=True)
@@ -145,7 +147,11 @@ def select_wallets(view: DataView, epoch: Epoch, cfg: Config, seed: int) -> Sele
         "bh_rejected": bh.n_rejected,
         "bh_threshold": bh.threshold,
     }
-    return Selection(epoch, chosen, naive, elig.cap, diag, e)
+    prof = {
+        str(r["wallet"]): (int(r["n_markets"]), float(r["mean_entry_price"]))
+        for r in cand[["wallet", "n_markets", "mean_entry_price"]].to_dict("records")
+    }
+    return Selection(epoch, chosen, naive, elig.cap, diag, e, prof)
 
 
 def oos_stats(units: pd.DataFrame, wallets: tuple[str, ...], cap: float) -> dict[str, Any]:
@@ -160,6 +166,8 @@ def oos_stats(units: pd.DataFrame, wallets: tuple[str, ...], cap: float) -> dict
             "cost": 0.0,
             "pooled_z": None,
             "wallet_z": {},
+            "num": 0.0,
+            "den": 0.0,
         }
     p = u["p_bar"].to_numpy(dtype=np.float64)
     y = u["y"].to_numpy(dtype=np.float64)
@@ -178,6 +186,8 @@ def oos_stats(units: pd.DataFrame, wallets: tuple[str, ...], cap: float) -> dict
         "cost": float(u["cost"].sum()),
         "pooled_z": float(df["num"].sum() / np.sqrt(den)) if den > 0 else None,
         "wallet_z": {str(k): float(v) for k, v in wz.items()},
+        "num": float(df["num"].sum()),
+        "den": den,
     }
 
 
@@ -191,7 +201,9 @@ def _agg(rows: list[dict[str, Any]]) -> dict[str, Any]:
     pnl = sum(r["pnl"] for r in rows)
     cost = sum(r["cost"] for r in rows)
     wz = [z for r in rows for z in r["wallet_z"].values()]
+    den = sum(r["den"] for r in rows)
     return {
+        "pooled_z": sum(r["num"] for r in rows) / np.sqrt(den) if den > 0 else None,
         "epochs_with_signals": sum(1 for r in rows if r["n_units"]),
         "n_units": sum(r["n_units"] for r in rows),
         "roi": pnl / cost if cost > 0 else None,
@@ -246,6 +258,9 @@ def walk_forward(
                 "pending_unresolved_trades": pending,
                 "naive_oos_roi": n["roi"],
                 "naive_oos_pooled_z": n["pooled_z"],
+                "naive": list(sel.naive),
+                "wallet_oos_z": s["wallet_z"],
+                "eligible": sel.eligible,
                 "diagnostics": sel.diagnostics,
             }
         )
@@ -273,3 +288,23 @@ def make_leaky_selector(trades: pd.DataFrame, markets: pd.DataFrame, cfg: Config
         return Selection(ep, top, top, cap, {"LEAKY": True})
 
     return leaky
+
+
+def leakage_selfcheck(
+    trades: pd.DataFrame, markets: pd.DataFrame, cfg: Config, epoch: Epoch, seed: int
+) -> int:
+    """Run-time leakage check on REAL data: flip every outcome resolving at/after the epoch
+    start and perturb every later trade; the selection must not change. Returns the number
+    of failures (0 or 1). Feeds gate 12."""
+    base = select_wallets(DataView(trades, markets, epoch.start_ts), epoch, cfg, seed)
+    m2 = markets.copy()
+    fut = m2["resolved_ts"].isna() | (m2["resolved_ts"] >= epoch.start_ts)
+    m2.loc[fut, "winning_outcome"] = 1 - m2.loc[fut, "winning_outcome"].fillna(0)
+    m2.loc[fut, "resolved_ts"] = epoch.start_ts + 1
+    m2.loc[fut, "status"] = "resolved"
+    t2 = trades.copy()
+    late = t2["ts"] >= epoch.start_ts
+    t2.loc[late, "price"] = 1 - t2.loc[late, "price"]
+    again = select_wallets(DataView(t2, m2, epoch.start_ts), epoch, cfg, seed)
+    same = (again.wallets, again.naive, again.cap) == (base.wallets, base.naive, base.cap)
+    return 0 if same else 1

@@ -24,8 +24,8 @@ wallets?* "No edge" is a valid, successful answer.
 | 2 | stats core, synthetic worlds, null calibration | **done**, see `docs/CHECKPOINT_PHASE2.md` |
 | 3 | store, backfill, history import, resolution, selection filters, walk-forward + leakage tests | **done**, see `docs/CHECKPOINT_PHASE3.md` |
 | 4 | execution: book walk, fees, chase, paper executor, ledger, replay | **done**, see `docs/CHECKPOINT_PHASE4.md` |
-| 5 | gates, stress, placebo, bootstrap, ladder, kill switches | next |
-| 6 | forward paper loop, settle, report, dashboard, runbook | |
+| 5 | gates, stress, placebo, bootstrap, ladder, kill switches, acceptance tests | **done**, see `docs/CHECKPOINT_PHASE5.md` |
+| 6 | forward paper loop, settle, report, dashboard, runbook | next |
 | 7 | optional strategy B (`btc_lag`) | |
 
 **Important:** Phase 1 was built without network access to Polymarket, so the
@@ -68,6 +68,11 @@ src/polybot/
   selection/walkforward.py  DataView (leakage-proof), epochs, frozen sets, OOS
   stats/                edge z-test, BH-FDR, cluster bootstrap + power, calibration
   experiments.py        synthetic experiments behind `polybot simulate`
-  gates/ report/        (later phases)
+  execution/fastsim.py  in-memory copy engine for placebo/stress (proven identical)
+  gates/metrics.py      ROI, drawdown, streaks, concentration, Evidence
+  gates/gates.py        the 12 paper gates (pure functions -> GateResult)
+  gates/ladder.py       rarity tiers, kill switches, micro-live (S3) evaluator
+  backtest.py           walk-forward -> fills -> stress -> placebo -> gates
+  report/               (Phase 6)
 tests/                  unit tests; fixtures/assumed (hand-written), fixtures/live (from probe)
 ```

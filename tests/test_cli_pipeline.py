@@ -111,5 +111,14 @@ def test_pipeline_from_csv_import(tmp_path: Path) -> None:
     res = json.loads(r.output)
     assert res["aggregate"]["n_epochs"] == 4
 
+    r = run.invoke(app, ["backtest", "--days", "56", "-c", str(cfg_path)])
+    assert r.exit_code == 0, r.output
+    assert "tier=" in r.output and (tmp_path / "x").parent.exists()
+    r = run.invoke(app, ["gates", "--explain"])
+    assert r.exit_code == 0, r.output
+    assert "1_forward_not_simulated" in r.output and "[ ]" in r.output
+    r = run.invoke(app, ["resume", "--note", "n/a", "-c", str(cfg_path)])
+    assert r.exit_code == 0 and "Not halted" in r.output
+
     r = run.invoke(app, ["history", "inspect", str(csv)])
     assert r.exit_code == 0 and "proxyWallet" in r.output
