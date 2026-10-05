@@ -110,9 +110,13 @@ CREATE TABLE IF NOT EXISTS paper_fills (
     token_id TEXT NOT NULL,
     wallet_price REAL,
     fill_price REAL NOT NULL,
-    slippage REAL NOT NULL,
+    best_ask REAL NOT NULL,
+    slippage REAL,              -- fill_price - wallet_price (NULL if no wallet price)
+    slippage_vs_best REAL NOT NULL,
     fee REAL NOT NULL,
-    stake_usdc REAL NOT NULL,
+    fee_coeff REAL NOT NULL,
+    intended_stake REAL NOT NULL,
+    stake_usdc REAL NOT NULL,   -- USDC actually spent, excluding fee
     shares REAL NOT NULL,
     shadow_fills_json TEXT NOT NULL,
     book_snapshot_id INTEGER REFERENCES book_snapshots(snapshot_id),
@@ -315,6 +319,63 @@ class Store:
                 (book.token_id, book.ts, fetched_ts),
             ).fetchone()
             return int(row[0])
+
+    # --- paper ledger (append-only) ---------------------------------------------
+    def signal_exists(self, strategy: str, wallet_trade_key: str | None) -> bool:
+        if wallet_trade_key is None:
+            return False
+        row = self.conn.execute(
+            "SELECT 1 FROM paper_signals WHERE strategy=? AND wallet_trade_key=?",
+            (strategy, wallet_trade_key),
+        ).fetchone()
+        return row is not None
+
+    def record_signal_and_fill(
+        self, signal: dict[str, Any], fill: dict[str, Any] | None
+    ) -> tuple[int, int | None]:
+        """Insert a signal (and its fill) in ONE transaction: crash-safe."""
+        with self.tx() as c:
+            cols = ", ".join(signal)
+            cur = c.execute(
+                f"INSERT INTO paper_signals({cols}) VALUES ({', '.join('?' * len(signal))})",
+                tuple(signal.values()),
+            )
+            sid = int(cur.lastrowid or 0)
+            fid = None
+            if fill is not None:
+                row = {**fill, "signal_id": sid}
+                cur = c.execute(
+                    f"INSERT INTO paper_fills({', '.join(row)}) "
+                    f"VALUES ({', '.join('?' * len(row))})",
+                    tuple(row.values()),
+                )
+                fid = int(cur.lastrowid or 0)
+            return sid, fid
+
+    def record_settlement(self, row: dict[str, Any]) -> int:
+        with self.tx() as c:
+            cur = c.execute(
+                f"INSERT INTO paper_settlements({', '.join(row)}) "
+                f"VALUES ({', '.join('?' * len(row))})",
+                tuple(row.values()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def fills_frame(self) -> pd.DataFrame:
+        return pd.read_sql_query("SELECT * FROM paper_fills ORDER BY fill_id", self.conn)
+
+    def signals_frame(self) -> pd.DataFrame:
+        return pd.read_sql_query("SELECT * FROM paper_signals ORDER BY signal_id", self.conn)
+
+    def settlements_frame(self) -> pd.DataFrame:
+        """Effective settlements: a row superseded by a later correction is dropped."""
+        return pd.read_sql_query(
+            """SELECT * FROM paper_settlements s
+               WHERE NOT EXISTS (SELECT 1 FROM paper_settlements c
+                                 WHERE c.supersedes = s.settlement_id)
+               ORDER BY settlement_id""",
+            self.conn,
+        )
 
     # --- bookkeeping -----------------------------------------------------------
     def get_cursor(self, job: str) -> dict[str, Any] | None:

@@ -109,7 +109,23 @@ Default client limit is a conservative 2 req/s, burst 4, with backoff on
 - Bulk history: see docs/HISTORY_IMPORT.md. CSVs are read as text so IDs like
   `0xc` are never re-typed as numbers. That bug was found and fixed in testing.
 
-## 7. Deviations from the build prompt
+## 7. Execution assumptions (Phase 4)
+
+- **Synthetic order book (backtests only).** No historical order books exist, so
+  backtest fills walk a synthetic ladder: best ask = reference + `sim_half_spread`
+  (1 cent), `sim_levels` (5) levels one tick apart, `sim_level_depth_usdc` ($250)
+  each. These numbers are **guesses**. Replace them with spreads and depth
+  measured from the forward run's real book snapshots before trusting backtest
+  costs. Live-forward fills always use the real book.
+- **Reference price in real-data backtests** = last real trade in the same
+  token in [t, t + delay]: the tape. It is a traded price, not a quote, which is
+  why the synthetic spread is added on top.
+- Shares are rounded down to 2 decimals and prices snapped up to the tick
+  (pessimistic for a buyer). The real minimum order size is not enforced yet;
+  `min_order_size` from `/book` is stored for when it is verified.
+- Fees are charged per fill level with the parabolic formula (section 4).
+
+## 8. Deviations from the build prompt
 
 - Project lives at the repository root rather than in a `polybot/` subfolder.
 - Phase 1 also includes `data/client.py`, `data/schemas.py` (adapter layer) and

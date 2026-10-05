@@ -70,6 +70,13 @@ execution:
   insufficient_depth: "reject"      # "reject" | "partial"
   default_tick_size: 0.01
   max_median_slippage: 0.02         # gate 9 cap (price units)
+  share_decimals: 2                 # fills are rounded DOWN to this many share decimals
+  # Synthetic order book used ONLY when no real book exists (backtests on history,
+  # synthetic worlds). ASSUMPTION: replace with measured spreads/depth from the
+  # forward run's real snapshots before trusting backtest costs.
+  sim_half_spread: 0.01
+  sim_levels: 5
+  sim_level_depth_usdc: 250.0
 
 fees:
   # DEFAULT ASSUMPTION (UNVERIFIED, see docs/ASSUMPTIONS.md):

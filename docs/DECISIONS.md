@@ -111,3 +111,37 @@ as achievable returns.
 ## D18. Imported history uses the same validator as the API
 Third-party datasets are parsed by `schemas.parse_trade` (with `conditionId`
 optional), so a bad mapping shows up as schema drift rather than wrong data.
+
+## D19. Stake is a fixed fraction of the STARTING bankroll
+0.5% of the initial virtual bankroll per signal: no compounding, no Kelly, no
+martingale. Compounding would make paper ROI depend on the order of wins, and
+Kelly needs an edge estimate we do not trust (D4).
+
+## D20. Fill rate excludes capacity skips
+Signals skipped by our own risk limits (max positions, per-market cap, total
+exposure, cash) are a sizing choice, not evidence that the market could not
+fill us. Gate 9's fill rate = filled / signals that reached the book. Capacity
+skips are reported separately as `capacity_skipped` so a capacity-starved strategy
+is still visible.
+
+## D21. Shadow fills have no chase cap
+The primary fill obeys the chase rule. Shadow fills at 1x/2x/5x L are walked
+without the cap so they show what latency *would* have cost. That is the input
+to the latency decay curve (gate 7).
+
+## D22. Positions settle in time order during replay
+The first replay settled everything at the end, so capacity filled immediately
+and the fill rate read 0.75%. Settlement now happens as each market resolves,
+freeing capacity exactly as it would in real time.
+
+## D23. Merge book levels that share a tick-snapped price
+Found by a Hypothesis property test: two asks at the same price (duplicated, or
+0.501 and 0.509 both snapping to 0.51) were treated as separate levels. They are
+now merged before walking.
+
+## D24. Adverse selection at high latency (finding)
+When latency is long relative to how fast prices absorb information (d/h >= 1),
+the chase rule rejects about 96% of signals. The few fills that remain are the
+trades where the price did *not* run away, which are disproportionately the
+wallets' wrong calls (gross ROI of the filled subset is about -18% in the
+skilled world). The fill-rate and latency gates must catch this. Phase 5 tests it.

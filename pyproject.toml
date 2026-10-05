@@ -65,7 +65,7 @@ mypy_path = "src"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["polybot.stats.*", "polybot.gates.*"]
+module = ["polybot.stats.*", "polybot.gates.*", "polybot.execution.*"]
 strict = true
 
 [tool.coverage.run]

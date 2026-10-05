@@ -104,6 +104,10 @@ class ExecutionConfig(_Frozen):
     insufficient_depth: Literal["reject", "partial"]
     default_tick_size: float = Field(gt=0)
     max_median_slippage: float = Field(ge=0)
+    share_decimals: int = Field(ge=0, le=6)
+    sim_half_spread: float = Field(ge=0)
+    sim_levels: int = Field(ge=1)
+    sim_level_depth_usdc: float = Field(gt=0)
 
     @field_validator("shadow_multipliers")
     @classmethod
