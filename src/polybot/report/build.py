@@ -144,12 +144,14 @@ def live_evidence(
     trades, markets = store.trades_frame(), store.markets_frame()
     final = markets[["market", "winning_outcome"]]
     per_ep, num, den, wz_all = [], 0.0, 0.0, []
+    wz_epochs: list[dict[str, float]] = []
     for e in epochs:
         inside = trades.loc[
             (trades["ts"] >= e["start_ts"]) & (trades["ts"] < min(e["end_ts"], now))
         ]
         s = oos_stats(build_units(inside, final).units, tuple(e["selected"]), e["cap"])
         per_ep.append(s["pooled_z"])
+        wz_epochs.append(s["wallet_z"])
         num += s["num"]
         den += s["den"]
         wz_all.extend(s["wallet_z"].values())
@@ -193,7 +195,7 @@ def live_evidence(
         config_hash_start=store.get_meta("forward_config_hash") or "",
         config_hash_now=config_hash(cfg),
     )
-    return ev, {"epochs": epochs, "signals": sigs, "fills": fills}
+    return ev, {"epochs": epochs, "signals": sigs, "fills": fills, "wallet_z": wz_epochs}
 
 
 def equity_series(st: pd.DataFrame, bankroll: float) -> list[dict[str, float]]:
@@ -238,6 +240,7 @@ def build_report(
     sigma = float(ret.std(ddof=1)) if len(ret) > 1 else float("nan")
     roi = M.roi(st)
     epochs = ctx["epochs"]
+    wz_by_epoch = ctx["wallet_z"]
     ep_rows = {e["epoch"]: e for e in M.epoch_table(st, ev.bankroll)}
     epoch_table = []
     for i, e in enumerate(epochs):
@@ -253,6 +256,9 @@ def build_report(
                 "roi": row.get("roi"),
                 "oos_pooled_z": ev.epoch_pooled_z[i] if i < len(ev.epoch_pooled_z) else None,
                 "leakage_failures": e["leakage_failures"],
+                "selected": list(e["selected"]),
+                "n_eligible": len(e["eligible"]),
+                "wallet_oos_z": wz_by_epoch[i] if i < len(wz_by_epoch) else {},
             }
         )
     latest = epochs[-1]["diagnostics"] if epochs else {}

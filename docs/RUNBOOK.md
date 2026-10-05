@@ -125,7 +125,9 @@ polybot gates --from out/report.json --explain
 Open `dashboard.html` in any browser (phone too: copy the HTML plus the two
 output files over) and load `out/report.json` and `out/trades.csv`.
 To preview with synthetic data: `python scripts/demo_report.py`, then load
-`out/demo/report.json` and `out/demo/trades.csv`.
+`out/demo/report.json` and `out/demo/trades.csv`. Press **Replay ledger** to animate
+the recorded trades. `python scripts/build_artifact.py` bundles a report into one
+shareable page (`out/artifact/polybot_desk.html`) with the data embedded.
 
 ### Kill switches
 
