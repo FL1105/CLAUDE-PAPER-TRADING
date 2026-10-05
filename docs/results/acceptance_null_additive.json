@@ -1,0 +1,31 @@
+{
+ "elapsed_s": 215.7,
+ "experiment": "acceptance",
+ "gate_pass_rate": {
+  "10_drawdown": 0.4,
+  "11_stability": 0.116667,
+  "12_data_integrity": 1.0,
+  "1_forward_not_simulated": 1.0,
+  "2_sample_size": 0.0,
+  "3_net_edge_credible": 0.01,
+  "4_selection_adds_value": 0.0,
+  "5_persistence": 0.026667,
+  "6_cost_robustness": 0.103333,
+  "7_latency_robustness": 0.16,
+  "8_not_a_lucky_streak": 0.0,
+  "9_fillability": 0.39
+ },
+ "latency_ratio_d_over_h": 0.1,
+ "mean_roi_when_traded": -0.059868,
+ "n_seeds": 300,
+ "placebo_computed": 0,
+ "price_model": "additive",
+ "promoted": 0,
+ "promotion_rate": 0.0,
+ "promotion_rate_wilson95": [
+  0.0,
+  0.012643
+ ],
+ "seeds_with_settled_trades": 120,
+ "world": "null"
+}

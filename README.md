@@ -44,13 +44,13 @@ polybot backtest --days 90        # can reach tier Common at most
 polybot paper                     # the forward run: leave it running 30+ days
 polybot report                    # then open dashboard.html
 ```
-Full instructions: `docs/RUNBOOK.md`.
+Full instructions: `docs/RUNBOOK.md`. Results and what is verified: `docs/FINAL_SUMMARY.md`.
 
 ## Layout
 
 ```
 config/default.yaml     every threshold and parameter
-docs/                   ASSUMPTIONS, DECISIONS, GATES, RUNBOOK, HISTORY_IMPORT, CHECKPOINT_*
+docs/                   FINAL_SUMMARY, ASSUMPTIONS, DECISIONS, GATES, RUNBOOK, HISTORY_IMPORT, CHECKPOINT_*, results/
 scripts/probe_apis.py   API probe (same as `polybot probe`)
 src/polybot/
   config.py             frozen pydantic config + hash
