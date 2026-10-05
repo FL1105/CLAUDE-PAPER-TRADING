@@ -10,10 +10,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
-from polybot.config import config_hash, load_config
+from polybot.config import Config, config_hash, load_config
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 app = typer.Typer(
     add_completion=False,
@@ -81,16 +85,169 @@ def config_hash_cmd(config: Path | None = ConfigOpt) -> None:
     typer.echo(f"config_version={cfg.config_version} hash={config_hash(cfg)}")
 
 
-@app.command()
-def backfill(days: int = 90) -> None:
-    """Historical ingestion (resumable)."""
-    _not_yet("backfill", 3)
+def _parse_date(s: str) -> int:
+    from datetime import UTC, datetime
+
+    return int(datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC).timestamp())
+
+
+def _now() -> int:
+    import time
+
+    return int(time.time())
 
 
 @app.command()
-def select(epoch_start: str = typer.Option(..., "--epoch-start")) -> None:
-    """Run wallet selection for an epoch."""
-    _not_yet("select", 3)
+def backfill(
+    days: int = typer.Option(90, "--days"),
+    markets_only: bool = typer.Option(
+        False, "--markets-only", help="only look up / refresh markets for stored trades"
+    ),
+    wallets_file: Path | None = typer.Option(
+        None, "--wallets-file", help="also pull per-wallet history (one address per line)"
+    ),
+    config: Path | None = ConfigOpt,
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Historical ingestion from the public API (resumable, idempotent)."""
+    from polybot.data.client import HttpClient, PolymarketClient, ResponseCache
+    from polybot.data.ingest import Ingestor
+    from polybot.data.store import Store
+
+    _setup_logging(verbose)
+    cfg = load_config(config)
+    end = _now()
+    start = end - days * 86_400
+    with (
+        HttpClient(cfg.api, seed=cfg.seed, cache=ResponseCache(ROOT / cfg.api.cache_dir)) as h,
+        Store(ROOT / cfg.storage.db_path) as st,
+    ):
+        ing = Ingestor(PolymarketClient(h), st, cfg)
+        out: dict[str, object] = {}
+        if not markets_only:
+            r = ing.backfill_trades(start, end)
+            out["trades"] = r.__dict__
+            if r.stopped_because == "offset_cap":
+                typer.echo(
+                    f"NOTE: the global feed only reached ts={r.oldest_ts}, not {start}. "
+                    "Use --wallets-file or `polybot history import` for deeper history.",
+                    err=True,
+                )
+            if wallets_file is not None:
+                ws = [w.strip() for w in wallets_file.read_text().splitlines() if w.strip()]
+                out["wallets"] = {w: ing.backfill_wallet(w, start, end).__dict__ for w in ws}
+        out["markets"] = ing.refresh_markets().__dict__
+        out["counts"] = {
+            t: st.count(t) for t in ("trades", "markets", "tokens", "schema_drift", "anomalies")
+        }
+        out["anomalies"] = st.anomaly_counts()
+    typer.echo(json.dumps(out, indent=1, default=str))
+
+
+history_app = typer.Typer(help="Import bulk historical trades (CSV/Parquet/remote via DuckDB).")
+app.add_typer(history_app, name="history")
+
+
+@history_app.command("inspect")
+def history_inspect(
+    path: str = typer.Argument(..., help="file path, glob, URL or hf:// path"),
+    mapping: Path | None = typer.Option(None, "--mapping", help="SQL file with {src}"),
+) -> None:
+    """Print columns, types and sample rows (do this before importing)."""
+    from polybot.data.history import inspect, read_mapping
+
+    typer.echo(json.dumps(inspect(path, read_mapping(mapping)), indent=1, default=str))
+
+
+@history_app.command("import")
+def history_import(
+    path: str = typer.Argument(...),
+    name: str = typer.Option(..., "--name", help="label for this source, e.g. hf-sii-2026"),
+    start: str = typer.Option(..., "--start", help="YYYY-MM-DD (inclusive)"),
+    end: str = typer.Option(..., "--end", help="YYYY-MM-DD (exclusive)"),
+    mapping: Path | None = typer.Option(None, "--mapping", help="SQL file with {src}"),
+    config: Path | None = ConfigOpt,
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Import trades in [start, end) into the local database."""
+    from polybot.data.history import import_trades, read_mapping
+    from polybot.data.store import Store
+
+    _setup_logging(verbose)
+    cfg = load_config(config)
+    with Store(ROOT / cfg.storage.db_path) as st:
+        r = import_trades(
+            st,
+            path,
+            name=name,
+            start_ts=_parse_date(start),
+            end_ts=_parse_date(end),
+            mapping_sql=read_mapping(mapping),
+            batch=cfg.ingest.history_import_batch,
+        )
+        typer.echo(json.dumps({**r.__dict__, "drift_total": st.count("schema_drift")}, indent=1))
+    typer.echo("Next: `polybot backfill --markets-only` to attach markets and resolutions.")
+
+
+def _frames(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
+    from polybot.data.store import Store
+
+    with Store(ROOT / cfg.storage.db_path) as st:
+        return st.trades_frame(), st.markets_frame()
+
+
+@app.command()
+def select(
+    epoch_start: str = typer.Option(..., "--epoch-start", help="YYYY-MM-DD"),
+    config: Path | None = ConfigOpt,
+) -> None:
+    """Run wallet selection for one epoch from local data; print table + diagnostics."""
+    from polybot.selection.walkforward import DataView, Epoch, select_wallets
+
+    cfg = load_config(config)
+    trades, markets = _frames(cfg)
+    s = _parse_date(epoch_start)
+    ep = Epoch(0, s, s + cfg.walkforward.epoch_days * 86_400)
+    sel = select_wallets(DataView(trades, markets, s), ep, cfg, cfg.seed)
+    top = sel.edges.sort_values("p_value").head(25) if sel.edges is not None else None
+    typer.echo(
+        json.dumps(
+            {
+                "epoch_start": s,
+                "selected": list(sel.wallets),
+                "naive_top_pnl": list(sel.naive),
+                "diagnostics": sel.diagnostics,
+            },
+            indent=1,
+            default=str,
+        )
+    )
+    if top is not None and len(top):
+        typer.echo(top.to_string(index=False))
+
+
+@app.command()
+def walkforward(
+    days: int = typer.Option(90, "--days", help="evaluation span (after the trailing window)"),
+    config: Path | None = ConfigOpt,
+) -> None:
+    """Walk-forward OOS evaluation on local data (gross, at wallet prices; Phase 3)."""
+    from polybot.selection.walkforward import walk_forward
+
+    cfg = load_config(config)
+    trades, markets = _frames(cfg)
+    end = int(trades["ts"].max()) + 1 if len(trades) else _now()
+    start = end - days * 86_400
+    r = walk_forward(trades, markets, cfg, start, end, seed=cfg.seed)
+    for e in r.epochs:
+        e.pop("diagnostics")
+    typer.echo(
+        json.dumps(
+            {"config_hash": config_hash(cfg), "epochs": r.epochs, "aggregate": r.aggregate},
+            indent=1,
+            default=str,
+        )
+    )
 
 
 @app.command()

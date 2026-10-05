@@ -49,6 +49,15 @@ class StorageConfig(_Frozen):
     db_path: str
 
 
+class IngestConfig(_Frozen):
+    page_limit: int = Field(ge=1)
+    max_offset: int = Field(ge=0)
+    market_page_limit: int = Field(ge=1)
+    market_ids_per_request: int = Field(ge=1)
+    forward_overlap_pages: int = Field(ge=0)
+    history_import_batch: int = Field(ge=1)
+
+
 class StatsConfig(_Frozen):
     fdr_q: float = Field(gt=0, lt=1)
     stake_cap_quantile: float = Field(gt=0, le=1)
@@ -187,6 +196,7 @@ class Config(_Frozen):
     seed: int
     api: ApiConfig
     storage: StorageConfig
+    ingest: IngestConfig
     stats: StatsConfig
     filters: FiltersConfig
     walkforward: WalkForwardConfig

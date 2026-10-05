@@ -35,7 +35,23 @@ Polymarket may restrict access from some regions. The probe only reads public
 data, but if every endpoint fails, check whether your network can reach
 `gamma-api.polymarket.com` in a browser.
 
-## 3. Forward paper run (Phase 6, not built yet)
+## 3. Build the historical database (Phase 3)
+
+```bash
+polybot backfill --days 90           # API: trades feed + markets (resumable; re-run is safe)
+#   if it reports the offset cap, add history from a bulk dataset:
+pip install -e ".[history]"
+polybot history inspect PATH         # see docs/HISTORY_IMPORT.md
+polybot history import PATH --name SRC --start 2026-04-01 --end 2026-10-01
+polybot backfill --markets-only      # attach markets / resolutions to imported trades
+
+polybot select --epoch-start 2026-09-01   # one epoch: selected wallets + filter counts
+polybot walkforward --days 90             # OOS by epoch (gross, before costs)
+```
+
+The database lives at `out/polybot.sqlite`. Delete it to start over.
+
+## 4. Forward paper run (Phase 6, not built yet)
 
 Will be documented here with `systemd` / `launchd` / `tmux` recipes once
 `polybot paper` exists.

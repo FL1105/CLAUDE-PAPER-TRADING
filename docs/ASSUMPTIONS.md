@@ -93,7 +93,23 @@ All gates are evaluated at 1x and 2x the fee coefficient regardless.
 Default client limit is a conservative 2 req/s, burst 4, with backoff on
 429/5xx. The probe records any rate-limit headers it sees.
 
-## 6. Deviations from the build prompt
+## 6. Ingestion assumptions (Phase 3, UNVERIFIED)
+
+- `/trades` and `/activity` are newest-first and paginate with `limit`/`offset`.
+  `ingest.page_limit` (500) and `ingest.max_offset` (3000) are guesses; set them
+  from the probe's pagination table. When the cap is hit, a `history_cap_reached`
+  anomaly records the oldest timestamp actually reached.
+- `/activity?user=` accepts `start`/`end` and returns `type: TRADE` rows with the
+  `/trades` fields. This is the per-wallet route to deeper history.
+- Gamma `/markets` accepts repeated `condition_ids=` and `clob_token_ids=` for
+  lookups. Markets not returned are logged as `market_not_found`.
+- Offset pagination over a moving feed can shift between pages. Overlap is
+  harmless (idempotent inserts). A forward poll that hits the cap without
+  catching up logs `forward_gap_possible`.
+- Bulk history: see docs/HISTORY_IMPORT.md. CSVs are read as text so IDs like
+  `0xc` are never re-typed as numbers. That bug was found and fixed in testing.
+
+## 7. Deviations from the build prompt
 
 - Project lives at the repository root rather than in a `polybot/` subfolder.
 - Phase 1 also includes `data/client.py`, `data/schemas.py` (adapter layer) and
@@ -101,3 +117,6 @@ Default client limit is a conservative 2 req/s, burst 4, with backoff on
   no-real-money constraint should hold from the first commit.
 - Commands for later phases exist in the CLI but exit with code 2 and the phase
   number that will implement them.
+- Phase 3 adds `polybot walkforward` (gross OOS at the wallet's own prices) and
+  `polybot history inspect|import`. `backtest` (with placebo, stress, costs)
+  arrives in Phase 5.

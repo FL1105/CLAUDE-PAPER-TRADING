@@ -22,8 +22,8 @@ wallets?* "No edge" is a valid, successful answer.
 |---|---|---|
 | 1 | scaffold, config, API client, adapter layer, probe, docs | **done** (API schemas unverified, see below) |
 | 2 | stats core, synthetic worlds, null calibration | **done**, see `docs/CHECKPOINT_PHASE2.md` |
-| 3 | store, backfill (+ on-chain history import), resolution, selection, walk-forward + leakage test | next |
-| 4 | execution: book walk, fees, chase, paper executor, ledger | |
+| 3 | store, backfill, history import, resolution, selection filters, walk-forward + leakage tests | **done**, see `docs/CHECKPOINT_PHASE3.md` |
+| 4 | execution: book walk, fees, chase, paper executor, ledger | next |
 | 5 | gates, stress, placebo, bootstrap, ladder, kill switches | |
 | 6 | forward paper loop, settle, report, dashboard, runbook | |
 | 7 | optional strategy B (`btc_lag`) | |
@@ -46,7 +46,7 @@ polybot config-hash
 
 ```
 config/default.yaml     every threshold and parameter
-docs/                   ASSUMPTIONS, DECISIONS, GATES, RUNBOOK
+docs/                   ASSUMPTIONS, DECISIONS, GATES, RUNBOOK, HISTORY_IMPORT, CHECKPOINT_*
 scripts/probe_apis.py   API probe (same as `polybot probe`)
 src/polybot/
   config.py             frozen pydantic config + hash
@@ -54,9 +54,14 @@ src/polybot/
   data/schemas.py       adapter layer: raw JSON -> validated records
   data/probe.py         endpoint probe + ASSUMPTIONS writer
   execution/live.py     stub only (raises)
+  data/store.py         SQLite schema, idempotent upserts, append-only paper ledger
+  data/ingest.py        API backfill / forward poll / market resolution refresh
+  data/history.py       bulk history import (CSV/Parquet/hf:// via DuckDB)
   data/synthetic.py     seeded null / skilled worlds
+  selection/filters.py  eligibility + anti-fake-alpha filters (counted)
+  selection/walkforward.py  DataView (leakage-proof), epochs, frozen sets, OOS
   stats/                edge z-test, BH-FDR, cluster bootstrap + power, calibration
   experiments.py        synthetic experiments behind `polybot simulate`
-  selection/ execution/ strategies/ gates/ report/   (later phases)
+  execution/ strategies/ gates/ report/   (later phases)
 tests/                  unit tests; fixtures/assumed (hand-written), fixtures/live (from probe)
 ```

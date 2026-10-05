@@ -60,6 +60,14 @@ class SyntheticWorld:
     def winners(self) -> pd.DataFrame:
         return self.markets[["market", "winning_outcome"]]
 
+    @property
+    def wf_markets(self) -> pd.DataFrame:
+        """Markets in the walk-forward format (all synthetic markets resolve at end_ts)."""
+        m = self.markets[["market", "winning_outcome", "end_ts"]].rename(
+            columns={"end_ts": "resolved_ts"}
+        )
+        return m.assign(status="resolved", winning_outcome=m["winning_outcome"].astype(float))
+
 
 def _markets(cfg: SyntheticConfig, rng: np.random.Generator, price_model: str) -> pd.DataFrame:
     n = cfg.n_markets

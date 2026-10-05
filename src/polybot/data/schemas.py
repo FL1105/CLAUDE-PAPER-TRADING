@@ -177,7 +177,7 @@ class RawTrade(_Raw):
     proxy_wallet: str = Field(alias="proxyWallet", min_length=1)
     side: str
     asset: str = Field(min_length=1)
-    condition_id: str = Field(alias="conditionId", min_length=1)
+    condition_id: str | None = Field(default=None, alias="conditionId")
     size: float
     price: float
     timestamp: Any
@@ -268,9 +268,13 @@ def trade_key(t: RawTrade, ts: int) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-def parse_trade(raw: dict[str, Any]) -> TradeRecord:
+def parse_trade(raw: dict[str, Any], *, require_condition: bool = True) -> TradeRecord:
+    """Parse one trade. ``require_condition=False`` is only for bulk imports, whose
+    rows may carry just a token id (linked to its market later via the tokens table)."""
     try:
         t = RawTrade.model_validate(raw)
+        if require_condition and not t.condition_id:
+            raise ValueError("missing conditionId")
         ts = parse_ts(t.timestamp)
         if ts is None:
             raise ValueError("missing timestamp")
@@ -283,7 +287,7 @@ def parse_trade(raw: dict[str, Any]) -> TradeRecord:
         tx_hash=t.transaction_hash,
         ts=ts,
         wallet=t.proxy_wallet.lower(),
-        condition_id=t.condition_id,
+        condition_id=t.condition_id or "",
         token_id=t.asset,
         side=t.side,
         price=t.price,

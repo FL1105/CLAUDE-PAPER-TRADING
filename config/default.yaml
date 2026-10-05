@@ -25,6 +25,15 @@ api:
 storage:
   db_path: "out/polybot.sqlite"
 
+ingest:
+  # UNVERIFIED pagination limits; set from `polybot probe` findings.
+  page_limit: 500
+  max_offset: 3000
+  market_page_limit: 500
+  market_ids_per_request: 20        # condition ids per Gamma lookup
+  forward_overlap_pages: 1
+  history_import_batch: 50000
+
 stats:
   fdr_q: 0.10                       # Benjamini-Hochberg FDR level
   stake_cap_quantile: 0.95          # w = min(cost_usdc, cap), cap = this quantile of position cost

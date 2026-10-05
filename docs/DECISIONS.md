@@ -87,3 +87,27 @@ false-discovery proportion stayed near q = 0.10. We do not loosen q to
 `src/polybot/experiments.py` (not in the spec layout) holds the synthetic
 experiments behind `polybot simulate`. Phase 5 extends it with the full
 pipeline, gates and false-promotion rate.
+
+## D15. Leakage safety by construction, tested by mutation
+The selector receives a `DataView`, never the full frames. The view copies only
+trades before the cutoff and erases every resolution not known before it. The
+main leakage test rewrites the future (flips all later outcomes, moves
+resolution times, edits and adds post-cutoff trades) and requires a byte-identical
+selection. To check that the test works, a leak was deliberately injected into
+`DataView`: two leakage tests failed, and the injection was reverted.
+
+## D16. Walk-forward window keys on resolution time
+Selection for epoch k uses markets that resolved in
+[start - trailing_window, start), with all of their trades. Trades in markets
+that had not resolved by the cutoff are purged and counted. Scoring a wallet on
+a market whose result was not yet known would be look-ahead.
+
+## D17. Phase 3 OOS is gross, at the wallet's own price
+The walk-forward scores the frozen set at the prices the wallets paid. That is
+an upper bound on what a copier could get. Phase 4 replaces it with
+book-walking fills, fees and latency, so the Phase 3 numbers must never be read
+as achievable returns.
+
+## D18. Imported history uses the same validator as the API
+Third-party datasets are parsed by `schemas.parse_trade` (with `conditionId`
+optional), so a bad mapping shows up as schema drift rather than wrong data.

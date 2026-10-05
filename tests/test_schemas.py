@@ -90,7 +90,14 @@ def test_trade_key_distinguishes_fills_in_same_tx() -> None:
 
 
 @pytest.mark.parametrize(
-    "bad", [{"side": "HOLD"}, {"price": 1.5}, {"timestamp": None}, {"proxyWallet": ""}]
+    "bad",
+    [
+        {"side": "HOLD"},
+        {"price": 1.5},
+        {"timestamp": None},
+        {"proxyWallet": ""},
+        {"conditionId": None},
+    ],
 )
 def test_bad_trades_are_drift(bad: dict) -> None:
     with pytest.raises(SchemaDriftError):

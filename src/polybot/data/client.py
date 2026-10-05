@@ -37,7 +37,7 @@ from polybot.config import ApiConfig
 log = logging.getLogger("polybot.client")
 
 JSON = Any
-Params = Mapping[str, str | int | float | bool | None]
+Params = Mapping[str, str | int | float | bool | list[str] | None]
 
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
