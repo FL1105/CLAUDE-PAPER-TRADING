@@ -111,7 +111,7 @@ def g3_net_edge(ev: M.Evidence, cfg: Config, adm: Admissibility) -> GateResult:
 
 
 def g4_placebo(ev: M.Evidence, cfg: Config, adm: Admissibility) -> GateResult:
-    r = M.roi(ev.trades)
+    r = ev.placebo_strategy_roi if ev.placebo_strategy_roi is not None else M.roi(ev.trades)
     if ev.placebo_rois is None or not ev.placebo_rois or r is None:
         return GateResult(
             "4_selection_adds_value",

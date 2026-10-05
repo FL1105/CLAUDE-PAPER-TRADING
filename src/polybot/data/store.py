@@ -137,6 +137,17 @@ CREATE TABLE IF NOT EXISTS paper_settlements (
     config_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS frozen_sets (
+    epoch_start INTEGER PRIMARY KEY,
+    epoch_end INTEGER NOT NULL,
+    wallets_json TEXT NOT NULL,
+    eligible_json TEXT NOT NULL,
+    diagnostics_json TEXT NOT NULL,
+    leakage_failures INTEGER NOT NULL,
+    config_hash TEXT NOT NULL,
+    created_ts INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ingest_state (
     job TEXT PRIMARY KEY,
     cursor_json TEXT NOT NULL,
@@ -158,7 +169,7 @@ CREATE TABLE IF NOT EXISTS schema_drift (
 );
 """
 
-APPEND_ONLY = ("paper_signals", "paper_fills", "paper_settlements")
+APPEND_ONLY = ("paper_signals", "paper_fills", "paper_settlements", "frozen_sets")
 
 
 def _append_only_triggers() -> str:
@@ -375,6 +386,45 @@ class Store:
                                  WHERE c.supersedes = s.settlement_id)
                ORDER BY settlement_id""",
             self.conn,
+        )
+
+    # --- meta / forward-run state ------------------------------------------------------
+    def get_meta(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return None if row is None else str(row[0])
+
+    def set_meta(self, key: str, value: str, *, overwrite: bool = True) -> None:
+        verb = "INSERT INTO meta(key, value) VALUES (?, ?) " + (
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            if overwrite
+            else "ON CONFLICT(key) DO NOTHING"
+        )
+        with self.tx() as c:
+            c.execute(verb, (key, value))
+
+    def save_frozen_set(self, row: dict[str, Any]) -> bool:
+        """Insert the frozen set for an epoch. Returns False if one already exists (frozen)."""
+        with self.tx() as c:
+            cur = c.execute(
+                f"INSERT OR IGNORE INTO frozen_sets({', '.join(row)}) "
+                f"VALUES ({', '.join('?' * len(row))})",
+                tuple(row.values()),
+            )
+            return cur.rowcount == 1
+
+    def frozen_sets(self) -> pd.DataFrame:
+        return pd.read_sql_query("SELECT * FROM frozen_sets ORDER BY epoch_start", self.conn)
+
+    def max_trade_rowid(self) -> int:
+        return int(self.conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM trades").fetchone()[0])
+
+    def trades_after_rowid(self, rowid: int) -> pd.DataFrame:
+        return pd.read_sql_query(
+            """SELECT t.rowid AS rid, t.*, m.category FROM trades t
+               LEFT JOIN markets m ON m.condition_id = t.condition_id
+               WHERE t.rowid > ? ORDER BY t.ts, t.rowid""",
+            self.conn,
+            params=(rowid,),
         )
 
     # --- kill-switch halt (paper-mode enforcement) ----------------------------------

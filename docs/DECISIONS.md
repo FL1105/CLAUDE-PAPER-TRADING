@@ -182,3 +182,34 @@ gate 12 and the data-integrity kill switch.
 A trigger stores a halt in the database. The executor then skips every new entry
 signal (`halted:<reason>`) while still logging wallet exits. `polybot resume --note`
 clears it, and the note is kept in the anomaly log.
+
+## D31. Forward fills are decided on the detection-time book; shadows are queued
+On detecting a frozen wallet's BUY, the loop fetches the real book immediately
+(the fill reference) and queues the signal. Shadow books at +1L/+2L/+5L are
+fetched on later iterations, and only then is the fill written, stamped with the
+detection time. The queue is persisted. After a crash, shadows that can no longer
+be captured honestly are recorded as `missing`, never back-filled.
+
+## D32. Stale detections are skipped, not copied
+After downtime, a wallet trade seen more than `paper.max_signal_age_s` (300 s)
+after it happened is skipped with reason `stale_signal`. On the very first start
+the trade cursor is set to "now", so historical trades are never copied.
+
+## D33. Live gate 4 compares like with like
+The ledger's real fills cannot be compared with simulated placebo fills. For
+live evidence, the strategy and 200 placebo draws are both scored by the same
+engine (tape reference + synthetic book) on the same forward-period trades. The
+report shows that engine ROI next to the ledger ROI.
+
+## D34. Tape-priced latency curves are coarse
+On real-data backtests the shadow price is the last *trade* in the token within
+the delay. When trading is sparse, 1x/2x/5x L (seconds) often see the same
+trade, so the curve is flat. Only the forward run's real shadow books measure
+latency decay properly. The synthetic demo shows this flat curve.
+
+## D35. Acceptance results are reported against the world, not tuned to it
+Default-strength skill is almost never promoted (low power). Strong skill is
+blocked by the 2-cent slippage cap and the 2x stress gate under the 1-cent
+synthetic half-spread, and passes at 0.5 cents. We do not loosen gates to reach
+the spec's 80% power. The binding constraint is copy cost, which the forward
+run's real books will measure.

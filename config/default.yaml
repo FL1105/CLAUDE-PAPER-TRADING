@@ -97,6 +97,9 @@ paper:
   max_concurrent_positions: 50
   poll_interval_s: 10
   heartbeat_interval_s: 60
+  max_signal_age_s: 300             # a wallet trade detected later than this is skipped as stale
+  settle_interval_s: 600            # how often open markets are re-checked for resolution
+  kill_check_interval_s: 300
 
 gates:
   min_forward_days: 30

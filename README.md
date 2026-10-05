@@ -25,8 +25,8 @@ wallets?* "No edge" is a valid, successful answer.
 | 3 | store, backfill, history import, resolution, selection filters, walk-forward + leakage tests | **done**, see `docs/CHECKPOINT_PHASE3.md` |
 | 4 | execution: book walk, fees, chase, paper executor, ledger, replay | **done**, see `docs/CHECKPOINT_PHASE4.md` |
 | 5 | gates, stress, placebo, bootstrap, ladder, kill switches, acceptance tests | **done**, see `docs/CHECKPOINT_PHASE5.md` |
-| 6 | forward paper loop, settle, report, dashboard, runbook | next |
-| 7 | optional strategy B (`btc_lag`) | |
+| 6 | forward paper loop, settle, report, dashboard, runbook | **done**, see `docs/CHECKPOINT_PHASE6.md` |
+| 7 | optional strategy B (`btc_lag`) | not started (optional) |
 
 **Important:** Phase 1 was built without network access to Polymarket, so the
 API schemas are *assumed*. Run `polybot probe` first. See
@@ -38,9 +38,13 @@ API schemas are *assumed*. Run `polybot probe` first. See
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
-polybot probe
-polybot config-hash
+polybot probe                     # verify the real API first
+polybot backfill --days 90        # and/or: polybot history import ...
+polybot backtest --days 90        # can reach tier Common at most
+polybot paper                     # the forward run: leave it running 30+ days
+polybot report                    # then open dashboard.html
 ```
+Full instructions: `docs/RUNBOOK.md`.
 
 ## Layout
 
@@ -73,6 +77,9 @@ src/polybot/
   gates/gates.py        the 12 paper gates (pure functions -> GateResult)
   gates/ladder.py       rarity tiers, kill switches, micro-live (S3) evaluator
   backtest.py           walk-forward -> fills -> stress -> placebo -> gates
-  report/               (Phase 6)
+  forward.py            live paper loop: frozen sets, real books, shadows, settle, kill switches
+  report/build.py       live evidence -> out/report.json, trades.csv, equity.csv
+dashboard.html          single-file offline dashboard (open locally; phone friendly)
+scripts/demo_report.py  synthetic demo report to preview the dashboard
 tests/                  unit tests; fixtures/assumed (hand-written), fixtures/live (from probe)
 ```

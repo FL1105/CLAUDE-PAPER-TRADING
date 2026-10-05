@@ -40,6 +40,9 @@ class Evidence:
     stress_roi: float | None = None
     latency_roi: dict[int, float | None] = field(default_factory=dict)
     placebo_rois: tuple[float, ...] | None = None
+    # When set, gate 4 compares THIS (the strategy scored by the same engine as the placebo
+    # draws) instead of the ledger ROI, so both sides of the comparison are apples-to-apples.
+    placebo_strategy_roi: float | None = None
     leakage_failures: int = 0
     recent_drift_errors: int = 0
     config_hash_start: str = ""

@@ -144,6 +144,8 @@ def select_wallets(view: DataView, epoch: Epoch, cfg: Config, seed: int) -> Sele
         "two_sided_pairs": len(units.two_sided),
         "purged_trades_unresolved_markets": purged,
         "filters": elig.as_dict(),
+        "cap": elig.cap,
+        "naive_top_pnl": list(naive),
         "bh_rejected": bh.n_rejected,
         "bh_threshold": bh.threshold,
     }

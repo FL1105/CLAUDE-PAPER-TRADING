@@ -134,6 +134,9 @@ class PaperConfig(_Frozen):
     max_concurrent_positions: int = Field(ge=1)
     poll_interval_s: float = Field(gt=0)
     heartbeat_interval_s: float = Field(gt=0)
+    max_signal_age_s: float = Field(gt=0)
+    settle_interval_s: float = Field(gt=0)
+    kill_check_interval_s: float = Field(gt=0)
 
 
 class GatesConfig(_Frozen):

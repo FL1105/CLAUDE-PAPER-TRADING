@@ -19,6 +19,10 @@ from polybot.config import Config, config_hash, load_config
 if TYPE_CHECKING:
     import pandas as pd
 
+    from polybot.data.client import HttpClient
+    from polybot.data.store import Store
+    from polybot.forward import ForwardLoop
+
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
@@ -335,22 +339,66 @@ def resume(
     typer.echo(f"Halt '{h}' cleared. Logged.")
 
 
-@app.command()
-def paper() -> None:
-    """Forward polling loop (paper signals/fills/settlements)."""
-    _not_yet("paper", 6)
+def _forward(cfg: Config) -> tuple[ForwardLoop, HttpClient, Store]:
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.data.store import Store
+    from polybot.forward import ForwardLoop
+
+    http = HttpClient(cfg.api, seed=cfg.seed)
+    st = Store(ROOT / cfg.storage.db_path)
+    return ForwardLoop(cfg, st, PolymarketClient(http), ROOT / "out"), http, st
 
 
 @app.command()
-def settle() -> None:
-    """Resolve open paper positions from Gamma."""
-    _not_yet("settle", 6)
+def paper(
+    iterations: int | None = typer.Option(
+        None, "--iterations", help="stop after N iterations (default: run forever)"
+    ),
+    once: bool = typer.Option(False, "--once", help="run exactly one iteration"),
+    config: Path | None = ConfigOpt,
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Forward paper-trading loop (Ctrl-C to stop; safe to restart any time)."""
+    _setup_logging(verbose)
+    loop, http, st = _forward(load_config(config))
+    try:
+        loop.run(max_iterations=1 if once else iterations)
+    finally:
+        http.close()
+        st.close()
 
 
 @app.command()
-def report() -> None:
-    """Write out/report.json, trades.csv, equity.csv."""
-    _not_yet("report", 6)
+def settle(config: Path | None = ConfigOpt, verbose: bool = typer.Option(False, "-v")) -> None:
+    """Resolve open paper positions from Gamma (also runs inside `paper`)."""
+    _setup_logging(verbose)
+    loop, http, st = _forward(load_config(config))
+    try:
+        n = loop.settle()
+        typer.echo(f"settled {n} positions; open: {len(loop.executor.state.open)}")
+    finally:
+        http.close()
+        st.close()
+
+
+@app.command()
+def report(config: Path | None = ConfigOpt) -> None:
+    """Write out/report.json, out/trades.csv, out/equity.csv (open dashboard.html to view)."""
+    from polybot.data.store import Store
+    from polybot.report.build import write_outputs
+
+    cfg = load_config(config)
+    with Store(ROOT / cfg.storage.db_path) as st:
+        rep = write_outputs(st, cfg, ROOT / "out", backtest_path=ROOT / "out" / "backtest.json")
+    lad = rep["ladder"]
+    s = rep["summary"]
+    typer.echo(
+        f"tier={lad['tier']} next={lad['next_tier']} settled={s['settled_trades']} "
+        f"roi={s['roi_net']} halted={rep['halted']}"
+    )
+    typer.echo("Blocking: " + ", ".join(b["name"] for b in lad["blocking_next"]))
+    typer.echo(rep["power"]["statement"])
+    typer.echo("Wrote out/report.json, out/trades.csv, out/equity.csv. Open dashboard.html.")
 
 
 @app.command()

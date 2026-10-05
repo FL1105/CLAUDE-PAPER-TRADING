@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polybot dashboard</title>
+<!-- Single self-contained file: no network, no CDN, no libraries. Open locally. -->
+<style>
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+  --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --series-1: #3987e5; --series-2: #d95926; --wash: rgba(57,135,229,0.12);
+  --good: #0ca30c; --critical: #d03b3b; --warning: #fab219;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f0efec;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #eb6834; --wash: rgba(42,120,214,0.10);
+  --good: #006300; --critical: #d03b3b; --warning: #a86b00;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 4px 0 2px; } h2 { font-size: 16px; margin: 0 0 10px; }
+.sub { color: var(--ink-2); font-size: 13px; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px;
+  padding: 14px; margin: 12px 0; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button, select, input { font: inherit; color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--ring); border-radius: 8px; padding: 6px 10px; min-height: 36px; }
+button { cursor: pointer; } button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--series-1); outline-offset: 1px; }
+.drop { border: 1.5px dashed var(--axis); border-radius: 12px; padding: 18px; text-align: center;
+  color: var(--ink-2); }
+.drop.over { border-color: var(--series-1); background: var(--wash); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--surface-2); border-radius: 10px; padding: 10px; }
+.tile .l { color: var(--ink-2); font-size: 12px; } .tile .v { font-size: 22px; font-weight: 600; }
+.tile .d { color: var(--muted); font-size: 12px; }
+.ladder { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 560px) { .ladder { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tier { border-radius: 10px; padding: 8px 6px; text-align: center; background: var(--surface-2);
+  color: var(--muted); font-size: 13px; border: 1px solid transparent; }
+.tier.reached { color: var(--ink); }
+.tier.current { border-color: var(--series-1); color: var(--ink); font-weight: 600; }
+.tier .s { display: block; font-size: 11px; color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
+.gate { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 8px 0;
+  border-top: 1px solid var(--grid); }
+.badge { font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 6px; text-align: center;
+  height: fit-content; border: 1px solid currentColor; }
+.pass { color: var(--good); } .fail { color: var(--critical); }
+.gname { font-weight: 600; } .gwhy { color: var(--ink-2); font-size: 13px; }
+.gobs { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; word-break: break-word; }
+.banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; border: 1px solid var(--critical);
+  color: var(--ink); background: color-mix(in srgb, var(--critical) 12%, transparent); }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.tip { position: absolute; pointer-events: none; background: var(--surface-2); border: 1px solid var(--ring);
+  border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; display: none; z-index: 2; }
+.tip b { display: block; font-size: 14px; }
+.key { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12px; margin-right: 12px; }
+.key i { display: inline-block; width: 14px; height: 2px; background: var(--series-1); }
+.key i.k2 { background: var(--series-2); }
+.grid2 { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 820px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { color: var(--ink-2); font-weight: 600; cursor: pointer; user-select: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.scroll { overflow-x: auto; }
+details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-top: 6px; }
+.check { list-style: none; padding: 0; margin: 0; }
+.check li { padding: 6px 0; border-top: 1px solid var(--grid); color: var(--ink-2); font-size: 13px; }
+.check li::before { content: "\2610  "; color: var(--ink); }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="row" style="justify-content:space-between">
+    <div><h1>polybot</h1><div class="sub">Paper-trading research report. No real money. Numbers, not hype.</div></div>
+    <button id="theme" type="button" aria-label="Toggle light or dark theme">Light</button>
+  </div>
+
+  <div class="card">
+    <div class="drop" id="drop" tabindex="0">
+      Drop <span class="mono">out/report.json</span> and <span class="mono">out/trades.csv</span> here, or
+      <label style="text-decoration:underline;cursor:pointer">choose files<input id="files" type="file" accept=".json,.csv" multiple hidden></label>.
+      <div class="sub" id="loaded">Nothing loaded.</div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="dlReport" type="button">Download report JSON</button>
+      <button id="dlTrades" type="button">Download filtered trades CSV</button>
+      <button id="clear" type="button">Forget saved data</button>
+    </div>
+  </div>
+
+  <div id="app" hidden>
+    <div id="halt"></div>
+    <div class="card">
+      <h2>Status</h2>
+      <div class="sub" id="meta"></div>
+      <div class="tiles" id="tiles" style="margin-top:10px"></div>
+      <p class="sub" id="power" style="margin:10px 0 0"></p>
+    </div>
+
+    <div class="card">
+      <h2>Promotion ladder</h2>
+      <div class="ladder" id="ladder"></div>
+      <p class="sub" id="blocking" style="margin:10px 0 0"></p>
+    </div>
+
+    <div class="card">
+      <h2>Gates</h2>
+      <div class="sub">All 12 must pass to reach Rare (S2). Observed vs threshold, with the reason each gate exists.</div>
+      <div id="gates"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h2>Settled equity (USDC)</h2><div class="sub">Settled PnL only; open positions are not marked to market.</div>
+        <div class="chart" id="cEquity"></div><details><summary>Show data</summary><div class="scroll" id="tEquity"></div></details></div>
+      <div class="card"><h2>Drawdown from peak (% of bankroll)</h2><div class="sub">Gate 10 cap: 20%.</div>
+        <div class="chart" id="cDD"></div></div>
+      <div class="card"><h2>Edge vs latency</h2><div class="sub">Net ROI of shadow fills at 1×, 2×, 5× base latency L. Gate 7 needs &gt; 0 through 2×L.</div>
+        <div class="chart" id="cLat"></div><details><summary>Show data</summary><div class="scroll" id="tLat"></div></details></div>
+      <div class="card"><h2>Placebo: random matched wallets</h2>
+        <div><span class="key"><i></i>placebo ROI distribution</span><span class="key"><i class="k2"></i>strategy (same engine)</span></div>
+        <div class="chart" id="cPlacebo"></div><details><summary>Show data</summary><div class="scroll" id="tPlacebo"></div></details></div>
+    </div>
+
+    <div class="card"><h2>Epochs</h2><div class="scroll" id="epochs"></div></div>
+    <div class="grid2">
+      <div class="card"><h2>Skip reasons</h2><div class="scroll" id="skips"></div></div>
+      <div class="card"><h2>Kill switches</h2><div id="kills"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Trades</h2>
+      <div class="row" style="margin-bottom:8px">
+        <input id="q" type="search" placeholder="Search" aria-label="Search trades" style="flex:1;min-width:140px">
+        <select id="fWallet" aria-label="Wallet"><option value="">All wallets</option></select>
+        <select id="fMarket" aria-label="Market"><option value="">All markets</option></select>
+        <select id="fStatus" aria-label="Status"><option value="">All statuses</option></select>
+        <select id="fSkip" aria-label="Skip reason"><option value="">All skip reasons</option></select>
+      </div>
+      <div class="scroll"><table id="trades"></table></div>
+      <div class="row" style="margin-top:8px;justify-content:space-between">
+        <span class="sub" id="pageInfo"></span>
+        <span class="row"><button id="prev" type="button">Prev</button><button id="next" type="button">Next</button></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Manual real-money checklist</h2>
+      <div class="sub">Cannot be automated. Unchecked by design.</div>
+      <ul class="check" id="checklist"></ul>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, text) => { const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined && text !== null) e.textContent = String(text); return e; };
+const SVGNS = "http://www.w3.org/2000/svg";
+const sv = (tag, attrs = {}) => { const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const pct = (x, d = 1) => (x === null || x === undefined || Number.isNaN(x)) ? "n/a" : (x * 100).toFixed(d) + "%";
+const num = (x, d = 2) => (x === null || x === undefined || Number.isNaN(Number(x))) ? "n/a" : Number(x).toFixed(d);
+const day = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : "n/a";
+
+// ---------- storage (per-viewer convenience only; always optional) ----------
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } } };
+
+// ---------- theme ----------
+function setTheme(t) { document.documentElement.dataset.theme = t; $("theme").textContent = t === "dark" ? "Light" : "Dark";
+  store.set("pb_theme", t); if (state.report) render(); }
+$("theme").addEventListener("click", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+
+// ---------- CSV ----------
+function parseCSV(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+    else f += c;
+  }
+  if (f.length || row.length) { row.push(f); rows.push(row); }
+  const head = rows.shift() || [];
+  return rows.filter(r => r.length > 1 || r[0] !== "").map(r => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ""])));
+}
+const toCSV = (rows, cols) => [cols.join(","), ...rows.map(r => cols.map(c => {
+  const v = r[c] ?? ""; const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(","))].join("\n");
+
+// ---------- state ----------
+const state = { report: null, reportText: null, trades: [], tradesText: null, page: 0, sort: { col: "created_ts", dir: -1 } };
+
+function load(name, text) {
+  if (name.endsWith(".json")) { const r = JSON.parse(text); if (!r.ladder) throw new Error("not a polybot report.json");
+    state.report = r; state.reportText = text; store.set("pb_report", text); }
+  else if (name.endsWith(".csv")) { state.trades = parseCSV(text); state.tradesText = text;
+    if (!store.set("pb_trades", text)) store.del("pb_trades"); }
+  $("loaded").textContent = `Loaded: ${state.report ? "report.json" : "no report"} · ${state.trades.length} trade rows`;
+  if (state.report) render();
+}
+async function readFiles(list) {
+  for (const f of list) { try { load(f.name.toLowerCase(), await f.text()); }
+    catch (e) { $("loaded").textContent = `Could not read ${f.name}: ${e.message}`; } }
+}
+$("files").addEventListener("change", (e) => readFiles(e.target.files));
+const drop = $("drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => readFiles(e.dataTransfer.files));
+$("clear").addEventListener("click", () => { store.del("pb_report"); store.del("pb_trades"); location.reload(); });
+
+function download(name, text, type) { const a = el("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+  document.body.append(a); a.click(); a.remove(); }
+$("dlReport").addEventListener("click", () => state.reportText && download("report.json", state.reportText, "application/json"));
+$("dlTrades").addEventListener("click", () => { const rows = filtered(); if (!rows.length) return;
+  download("trades_filtered.csv", toCSV(rows, Object.keys(rows[0])), "text/csv"); });
+
+// ---------- math helpers ----------
+function normSf(z) { // one-sided p = 1 - Phi(z), Abramowitz-Stegun erf
+  const x = z / Math.SQRT2, t = 1 / (1 + 0.3275911 * Math.abs(x));
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  const erf = x >= 0 ? y : -y; return 0.5 * (1 - erf); }
+
+// ---------- chart primitives ----------
+function frame(host, w, h) { host.replaceChildren(); const s = sv("svg", { viewBox: `0 0 ${w} ${h}`, role: "img" });
+  const tip = el("div", { class: "tip", role: "status" }); host.append(s, tip); return { s, tip }; }
+function ticks(lo, hi, n = 4) { if (lo === hi) { lo -= 1; hi += 1; } const span = hi - lo, step0 = span / n;
+  const mag = 10 ** Math.floor(Math.log10(step0)), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n) || mag * 10;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-12; v += step) out.push(+v.toFixed(10)); return out; }
+function showTip(tip, host, x, y, value, label) { tip.replaceChildren(el("b", {}, value), el("span", {}, label));
+  tip.style.display = "block"; const r = host.getBoundingClientRect();
+  tip.style.left = Math.min(Math.max(0, x - tip.offsetWidth / 2), r.width - tip.offsetWidth) + "px";
+  tip.style.top = Math.max(0, y - tip.offsetHeight - 10) + "px"; }
+
+function lineChart(host, pts, { fmtY, fmtX, label, area = false, zero = false, invert = false, marker = false }) {
+  const W = 560, H = 220, m = { l: 52, r: 12, t: 10, b: 26 };
+  const { s, tip } = frame(host, W, H);
+  if (!pts.length) { host.replaceChildren(el("div", { class: "empty" }, "No settled data yet.")); return; }
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  let y0 = Math.min(...ys, zero ? 0 : Infinity), y1 = Math.max(...ys, zero ? 0 : -Infinity);
+  if (y0 === y1) { y0 -= 1; y1 += 1; }
+  const x0 = Math.min(...xs), x1 = Math.max(...xs) === x0 ? x0 + 1 : Math.max(...xs);
+  const X = (v) => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+  const Y = invert ? (v) => m.t + (v - y0) / (y1 - y0) * (H - m.t - m.b) : (v) => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  for (const t of ticks(y0, y1)) { s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: css("--grid"), "stroke-width": 1 }));
+    const tx = sv("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", fill: css("--muted"), "font-size": 11 }); tx.textContent = fmtY(t); s.append(tx); }
+  if (zero && y0 < 0 && y1 > 0) s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(0), y2: Y(0), stroke: css("--axis"), "stroke-width": 1 }));
+  const xt = pts.length <= 6 ? pts.map(p => p.x) : [x0, x0 + (x1 - x0) / 2, x1];
+  for (const t of xt) { const anchor = t === x0 && xt.length > 1 ? "start" : (t === x1 && xt.length > 1 ? "end" : "middle");
+    const tx = sv("text", { x: X(t), y: H - 8, "text-anchor": anchor, fill: css("--muted"), "font-size": 11 });
+    tx.textContent = fmtX(t); s.append(tx); }
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join("");
+  if (area) s.append(sv("path", { d: `${d}L${X(pts.at(-1).x)},${Y(invert ? y0 : Math.max(y0, 0))}L${X(pts[0].x)},${Y(invert ? y0 : Math.max(y0, 0))}Z`, fill: css("--wash") }));
+  s.append(sv("path", { d, fill: "none", stroke: css("--series-1"), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  const last = pts.at(-1);
+  if (marker) for (const p of pts) s.append(sv("circle", { cx: X(p.x), cy: Y(p.y), r: 4.5, fill: css("--series-1"), stroke: css("--surface"), "stroke-width": 2 }));
+  else s.append(sv("circle", { cx: X(last.x), cy: Y(last.y), r: 4.5, fill: css("--series-1"), stroke: css("--surface"), "stroke-width": 2 }));
+  const end = sv("text", { x: Math.min(X(last.x), W - m.r), y: Y(last.y) - 9, "text-anchor": "end", fill: css("--ink"), "font-size": 12, "font-weight": 600 });
+  end.textContent = fmtY(last.y); s.append(end);
+  const cross = sv("line", { y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, visibility: "hidden" }); s.append(cross);
+  const hit = sv("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", tabindex: 0, "aria-label": label });
+  s.append(hit);
+  const move = (clientX) => { const r = s.getBoundingClientRect(); const vx = (clientX - r.left) / r.width * W;
+    let best = pts[0]; for (const p of pts) if (Math.abs(X(p.x) - vx) < Math.abs(X(best.x) - vx)) best = p;
+    cross.setAttribute("x1", X(best.x)); cross.setAttribute("x2", X(best.x)); cross.setAttribute("visibility", "visible");
+    showTip(tip, host, X(best.x) / W * r.width, Y(best.y) / H * r.height, fmtY(best.y), `${label} · ${fmtX(best.x)}`); };
+  hit.addEventListener("pointermove", (e) => move(e.clientX));
+  hit.addEventListener("pointerleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  hit.addEventListener("focus", () => { const r = s.getBoundingClientRect(); move(r.left + X(last.x) / W * r.width); });
+  hit.addEventListener("blur", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+}
+
+function histogram(host, values, marker) {
+  const W = 560, H = 220, m = { l: 40, r: 12, t: 22, b: 26 };
+  if (!values.length) { host.replaceChildren(el("div", { class: "empty" }, "Placebo not computed yet (needs selected wallets in the forward period).")); return; }
+  const { s, tip } = frame(host, W, H);
+  const lo = Math.min(...values, marker ?? Infinity), hi = Math.max(...values, marker ?? -Infinity);
+  const nb = Math.min(24, Math.max(8, Math.round(Math.sqrt(values.length)))), bw = (hi - lo || 1) / nb;
+  const bins = Array.from({ length: nb }, (_, i) => ({ a: lo + i * bw, b: lo + (i + 1) * bw, n: 0 }));
+  for (const v of values) bins[Math.min(nb - 1, Math.floor((v - lo) / bw))].n++;
+  const ymax = Math.max(...bins.map(b => b.n));
+  const X = (v) => m.l + (v - lo) / (hi - lo || 1) * (W - m.l - m.r), Y = (n) => H - m.b - n / ymax * (H - m.t - m.b);
+  for (const t of ticks(0, ymax, 3)) { s.append(sv("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: css("--grid") }));
+    const tx = sv("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", fill: css("--muted"), "font-size": 11 }); tx.textContent = t; s.append(tx); }
+  for (const t of ticks(lo, hi, 4)) { const tx = sv("text", { x: X(t), y: H - 8, "text-anchor": "middle", fill: css("--muted"), "font-size": 11 });
+    tx.textContent = pct(t, 0); s.append(tx); }
+  const slot = (W - m.l - m.r) / nb, barW = Math.min(24, slot - 2);
+  bins.forEach((b) => { if (!b.n) return; const x = X(b.a) + (slot - barW) / 2, y = Y(b.n), h = H - m.b - y, r = Math.min(4, h, barW / 2);
+    const p = sv("path", { d: `M${x},${H - m.b}V${y + r}Q${x},${y} ${x + r},${y}H${x + barW - r}Q${x + barW},${y} ${x + barW},${y + r}V${H - m.b}Z`,
+      fill: css("--series-1"), tabindex: 0 });
+    const hit = sv("rect", { x: X(b.a), y: m.t, width: slot, height: H - m.t - m.b, fill: "transparent" });
+    const on = () => { p.setAttribute("opacity", "0.8"); const r2 = s.getBoundingClientRect();
+      showTip(tip, host, (x + barW / 2) / W * r2.width, y / H * r2.height, `${b.n} draws`, `ROI ${pct(b.a)} to ${pct(b.b)}`); };
+    const off = () => { p.setAttribute("opacity", "1"); tip.style.display = "none"; };
+    [hit, p].forEach(n => { n.addEventListener("pointermove", on); n.addEventListener("pointerleave", off); });
+    p.addEventListener("focus", on); p.addEventListener("blur", off);
+    s.append(p, hit); });
+  if (marker !== null && marker !== undefined) {
+    s.append(sv("line", { x1: X(marker), x2: X(marker), y1: m.t - 4, y2: H - m.b, stroke: css("--series-2"), "stroke-width": 2 }));
+    const t = sv("text", { x: X(marker), y: m.t - 8, "text-anchor": X(marker) > W - 120 ? "end" : "start", fill: css("--ink"), "font-size": 12, "font-weight": 600 });
+    t.textContent = `strategy ${pct(marker)}`; s.append(t); }
+}
+
+function table(host, rows, cols) {
+  if (!rows.length) { host.replaceChildren(el("div", { class: "empty" }, "No rows.")); return; }
+  const t = el("table"), hr = el("tr");
+  for (const [k, lab, isNum] of cols) hr.append(el("th", isNum ? { class: "num" } : {}, lab));
+  t.append(hr);
+  for (const r of rows) { const tr = el("tr"); for (const [k, , isNum, fmt] of cols)
+    tr.append(el("td", isNum ? { class: "num" } : {}, fmt ? fmt(r[k], r) : (r[k] ?? ""))); t.append(tr); }
+  host.replaceChildren(t);
+}
+
+// ---------- render ----------
+const TIERS = [["Common", "S0 backtest valid"], ["Uncommon", "S1 forward running"], ["Rare", "S2 paper gates passed"],
+  ["Epic", "S3 micro-live (future)"], ["Legendary", "S4 scaled (future)"]];
+const EXPLAIN = {
+  "1_forward_not_simulated": "Only live forward paper trading with real books counts; at least 30 days.",
+  "2_sample_size": "Enough settled trades, markets and epochs to tell a few % of edge from zero.",
+  "3_net_edge_credible": "Lower bound of the one-sided 95% market-clustered bootstrap CI of net ROI > 0.",
+  "4_selection_adds_value": "Beats the 95th percentile of random matched wallets copied the same way.",
+  "5_persistence": "Selected wallets keep their edge out of sample: pooled z > 1.64, >= 55% positive.",
+  "6_cost_robustness": "Still profitable at 2× fees, 2× slippage and 2× latency together.",
+  "7_latency_robustness": "Edge does not cross zero before 2× base latency.",
+  "8_not_a_lucky_streak": "Profitable without the top 3 trades; no market > 10%, no wallet > 35% of PnL.",
+  "9_fillability": "Fill rate >= 85% of signals that reached the book; median slippage within cap.",
+  "10_drawdown": "Max drawdown <= 20% of bankroll; per-market losing streak plausible for the win rate.",
+  "11_stability": "Positive in >= 60% of epochs; no epoch loses more than 5% of the bankroll.",
+  "12_data_integrity": "No leakage, no schema drift in 7 days, config unchanged since the forward start.",
+};
+
+function render() {
+  const R = state.report; $("app").hidden = false;
+  const halt = $("halt"); halt.replaceChildren();
+  if (R.halted) halt.append(el("div", { class: "banner", role: "alert" }, `HALTED by kill switch: ${R.halted}. No new positions until reviewed (polybot resume --note ...).`));
+  const S = R.summary || {}, dr = R.date_range || {};
+  $("meta").textContent = `Evidence: ${R.evidence_mode} · ${day(dr.start_ts)} to ${day(dr.end_ts)} (${num(dr.days, 1)} days) · config ${String(R.config_hash).slice(0, 12)}`;
+  const g3 = (R.ladder.gates || []).find(g => g.name.startsWith("3_")), g5 = (R.ladder.gates || []).find(g => g.name.startsWith("5_"));
+  const z = g5 && g5.observed ? g5.observed.pooled_oos_z : null;
+  const tiles = [
+    ["Net ROI (settled)", pct(S.roi_net), `${S.settled_trades ?? 0} trades · ${S.markets ?? 0} markets`],
+    ["95% CI lower bound", pct(g3 && g3.observed ? g3.observed.ci_lower : null), "market-clustered bootstrap"],
+    ["Pooled OOS z", num(z), z === null || z === undefined ? "" : `one-sided p ${normSf(z) < 1e-15 ? "< 1e-15" : "= " + normSf(z).toExponential(1)}`],
+    ["Fill rate", pct(S.fill_rate), `median slippage ${num(S.median_slippage, 3)}`],
+    ["Max drawdown", pct(S.max_drawdown), "of bankroll"],
+    ["Open positions", S.open_positions ?? 0, `PnL ${num(S.pnl)} USDC`],
+  ];
+  $("tiles").replaceChildren(...tiles.map(([l, v, d]) => { const t = el("div", { class: "tile" });
+    t.append(el("div", { class: "l" }, l), el("div", { class: "v" }, v), el("div", { class: "d" }, d)); return t; }));
+  $("power").textContent = (R.power && R.power.statement) || "";
+
+  const cur = R.ladder.tier, idx = TIERS.findIndex(t => t[0] === cur);
+  $("ladder").replaceChildren(...TIERS.map(([n, s], i) => { const d = el("div", { class: "tier" + (i <= idx ? " reached" : "") + (i === idx ? " current" : "") });
+    d.append(document.createTextNode(n)); d.append(el("span", { class: "s" }, s)); if (i === idx) d.setAttribute("aria-current", "step"); return d; }));
+  $("blocking").textContent = `Current: ${cur || "none yet"}. Blocking ${R.ladder.next_tier}: ` +
+    ((R.ladder.blocking_next || []).map(b => b.name).join(", ") || "nothing");
+
+  $("gates").replaceChildren(...(R.ladder.gates || []).map(g => { const row = el("div", { class: "gate" });
+    row.append(el("span", { class: "badge " + (g.passed ? "pass" : "fail") }, g.passed ? "✓ PASS" : "✗ FAIL"));
+    const b = el("div"); b.append(el("div", { class: "gname" }, g.name.replace(/_/g, " ")), el("div", { class: "gwhy" }, EXPLAIN[g.name] || g.detail || ""),
+      el("div", { class: "gobs" }, `observed ${JSON.stringify(g.observed)} · threshold ${JSON.stringify(g.threshold)}`)); row.append(b); return row; }));
+
+  const eq = (R.equity || []).map(p => ({ x: p.ts, y: p.equity, dd: p.drawdown }));
+  lineChart($("cEquity"), eq, { fmtY: (v) => num(v, 0), fmtX: (v) => day(v), label: "settled equity" });
+  table($("tEquity"), R.equity || [], [["ts", "date", false, (v) => day(v)], ["equity", "equity", true, (v) => num(v)], ["drawdown", "drawdown", true, (v) => pct(v)]]);
+  lineChart($("cDD"), eq.map(p => ({ x: p.x, y: p.dd })), { fmtY: (v) => pct(v, 0), fmtX: (v) => day(v), label: "drawdown", area: true, invert: true });
+  const lat = Object.entries(R.latency_curve || {}).filter(([, v]) => v !== null).map(([k, v]) => ({ x: parseFloat(k), y: v }));
+  lineChart($("cLat"), lat, { fmtY: (v) => pct(v, 1), fmtX: (v) => `${v}×L`, label: "net ROI", zero: true, marker: true });
+  table($("tLat"), lat, [["x", "latency", false, (v) => `${v}×L`], ["y", "net ROI", true, (v) => pct(v, 2)]]);
+  const P = R.placebo || {};
+  histogram($("cPlacebo"), P.rois || [], P.strategy_roi_same_engine);
+  table($("tPlacebo"), [{ n: P.n, s: P.strategy_roi_same_engine, p: P.strategy_percentile }],
+    [["n", "draws", true], ["s", "strategy ROI", true, (v) => pct(v)], ["p", "strategy percentile", true, (v) => num(v, 1)]]);
+
+  table($("epochs"), R.epochs || [], [["epoch", "#", true], ["start_ts", "start", false, (v) => day(v)], ["n_selected", "wallets", true],
+    ["settled_trades", "trades", true], ["pnl", "PnL", true, (v) => num(v)], ["roi", "ROI", true, (v) => pct(v)],
+    ["oos_pooled_z", "OOS z", true, (v) => num(v)], ["leakage_failures", "leaks", true]]);
+  table($("skips"), Object.entries(R.skip_reasons || {}).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v), [["k", "reason", false], ["v", "count", true]]);
+  $("kills").replaceChildren(...(R.kill_switches || []).map(k => { const row = el("div", { class: "gate" });
+    row.append(el("span", { class: "badge " + (k.triggered ? "fail" : "pass") }, k.triggered ? "⚠ HALT" : "✓ ok"));
+    const b = el("div"); b.append(el("div", { class: "gname" }, k.name.replace(/_/g, " ")), el("div", { class: "gobs" }, k.detail)); row.append(b); return row; }));
+  $("checklist").replaceChildren(...((R.ladder.manual_checklist || []).map(c => el("li", {}, c.item))));
+  setupFilters(); renderTrades();
+}
+
+// ---------- trades table ----------
+const TCOLS = [["created_ts", "time", false, (v) => v ? new Date(v * 1000).toISOString().replace("T", " ").slice(0, 16) : ""],
+  ["wallet", "wallet", false, (v) => v ? v.slice(0, 10) + "…" : ""], ["condition_id", "market", false, (v) => v ? v.slice(0, 10) + "…" : ""],
+  ["status", "status", false], ["skip_reason", "skip reason", false], ["wallet_price", "wallet px", true, (v) => v === "" ? "" : num(v, 3)],
+  ["fill_price", "fill px", true, (v) => v === "" ? "" : num(v, 3)], ["slippage", "slip", true, (v) => v === "" ? "" : num(v, 3)],
+  ["stake_usdc", "stake", true, (v) => v === "" ? "" : num(v)], ["fee", "fee", true, (v) => v === "" ? "" : num(v, 3)],
+  ["net_pnl", "net PnL", true, (v) => v === "" ? "" : num(v)], ["resolution_status", "resolution", false]];
+function setupFilters() {
+  const fill = (id, key) => { const sel = $(id), keep = sel.value; const vals = [...new Set(state.trades.map(r => r[key]).filter(Boolean))].sort();
+    sel.replaceChildren(sel.options[0]); for (const v of vals) sel.append(el("option", { value: v }, v.length > 24 ? v.slice(0, 24) + "…" : v)); sel.value = keep; };
+  fill("fWallet", "wallet"); fill("fMarket", "condition_id"); fill("fStatus", "status"); fill("fSkip", "skip_reason");
+}
+function filtered() {
+  const q = $("q").value.toLowerCase(), w = $("fWallet").value, m = $("fMarket").value, st = $("fStatus").value, sk = $("fSkip").value;
+  const { col, dir } = state.sort;
+  return state.trades.filter(r => (!w || r.wallet === w) && (!m || r.condition_id === m) && (!st || r.status === st) && (!sk || r.skip_reason === sk)
+    && (!q || Object.values(r).some(v => String(v).toLowerCase().includes(q))))
+    .sort((a, b) => { const x = a[col], y = b[col], nx = parseFloat(x), ny = parseFloat(y);
+      const c = (!Number.isNaN(nx) && !Number.isNaN(ny)) ? nx - ny : String(x).localeCompare(String(y)); return c * dir; });
+}
+function renderTrades() {
+  const rows = filtered(), per = 25, pages = Math.max(1, Math.ceil(rows.length / per));
+  state.page = Math.min(state.page, pages - 1);
+  const t = $("trades"); t.replaceChildren();
+  const hr = el("tr");
+  for (const [k, lab, isNum] of TCOLS) { const th = el("th", isNum ? { class: "num", tabindex: 0 } : { tabindex: 0 },
+    lab + (state.sort.col === k ? (state.sort.dir > 0 ? " ▲" : " ▼") : ""));
+    const go = () => { state.sort = { col: k, dir: state.sort.col === k ? -state.sort.dir : -1 }; renderTrades(); };
+    th.addEventListener("click", go); th.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); hr.append(th); }
+  t.append(hr);
+  if (!state.trades.length) { const tr = el("tr"); tr.append(el("td", { colspan: TCOLS.length, class: "empty" }, "Load out/trades.csv to see trades.")); t.append(tr); }
+  for (const r of rows.slice(state.page * per, state.page * per + per)) { const tr = el("tr");
+    for (const [k, , isNum, fmt] of TCOLS) tr.append(el("td", isNum ? { class: "num" } : {}, fmt ? fmt(r[k] ?? "", r) : (r[k] ?? ""))); t.append(tr); }
+  $("pageInfo").textContent = `${rows.length} rows · page ${state.page + 1} of ${pages}`;
+}
+["q", "fWallet", "fMarket", "fStatus", "fSkip"].forEach(id => $(id).addEventListener("input", () => { state.page = 0; renderTrades(); }));
+$("prev").addEventListener("click", () => { state.page = Math.max(0, state.page - 1); renderTrades(); });
+$("next").addEventListener("click", () => { state.page += 1; renderTrades(); });
+
+// ---------- boot ----------
+setTheme(store.get("pb_theme") || "dark");
+try { const r = store.get("pb_report"); if (r) load("report.json", r); const t = store.get("pb_trades"); if (t) load("trades.csv", t); }
+catch (e) { $("loaded").textContent = "Saved data could not be read; please load the files again."; }
+</script>
+</body>
+</html>

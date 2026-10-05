@@ -157,6 +157,13 @@ class PaperExecutor:
             "config_hash": self.config_hash,
         }
 
+    def skip(self, s: Signal, reason: str) -> Outcome:
+        """Record a skipped signal with a reason decided outside the executor
+        (e.g. stale detection, book fetch error)."""
+        if self.store.signal_exists(s.strategy, s.wallet_trade_key):
+            return Outcome("duplicate", "already_processed")
+        return self._skip(s, reason)
+
     def _skip(self, s: Signal, reason: str) -> Outcome:
         sid, _ = self.store.record_signal_and_fill(self._signal_row(s, "skipped", reason), None)
         return Outcome("skipped", reason, sid)
@@ -241,6 +248,7 @@ class PaperExecutor:
                 "shares": sr.shares,
                 "cost": sr.cost,
                 "fee": fill_fee(sr.levels, coeff) if sr.filled else 0.0,
+                "best_ask": sr.best_ask,
                 "book_ts": sb.ts,
             }
 

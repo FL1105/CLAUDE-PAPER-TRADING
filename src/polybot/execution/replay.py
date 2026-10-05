@@ -116,10 +116,11 @@ def replay(
     fee_multiplier: float = 1.0,
     spread_multiplier: float = 1.0,
     latency_multiplier: float = 1.0,
+    store: Store | None = None,
 ) -> ReplayResult:
     """Replay (start_ts, end_ts, wallets) epochs. ``latency_multiplier`` scales L for
     the primary fill (stress tests); shadows always use 1x/2x/5x of the base L."""
-    store = Store(":memory:")
+    store = store if store is not None else Store(":memory:")
     now = {"t": 0.0}
     ex = PaperExecutor(
         store, cfg, evidence_mode=evidence_mode, config_hash=config_hash, clock=lambda: now["t"]
