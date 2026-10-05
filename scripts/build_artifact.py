@@ -42,8 +42,10 @@ def safe(text: str) -> str:
 
 
 report = Path(a.report).read_text(encoding="utf-8")
-data = (f'<script id="embedded-report" type="application/json">{safe(report)}</script>\n'
-        f'<script id="embedded-trades" type="text/plain">{safe(buf.getvalue())}</script>\n')
+data = (
+    f'<script id="embedded-report" type="application/json">{safe(report)}</script>\n'
+    f'<script id="embedded-trades" type="text/plain">{safe(buf.getvalue())}</script>\n'
+)
 # the data blocks must exist before the dashboard script runs
 body = body.replace("<script>", data + "<script>", 1)
 out = Path(a.out)
