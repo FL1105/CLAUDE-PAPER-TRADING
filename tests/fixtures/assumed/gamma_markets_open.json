@@ -1,0 +1,8 @@
+[
+ {"id": "100003", "question": "ASSUMED: Will BTC be above 100k on Nov 1?", "conditionId": "0xc7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7",
+  "slug": "assumed-btc-100k", "endDate": "2026-11-01T16:00:00Z", "closedTime": null,
+  "closed": false, "active": true, "archived": false,
+  "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.62\", \"0.38\"]",
+  "clobTokenIds": "[\"5555555555555555555555\", \"6666666666666666666666\"]",
+  "negRisk": false, "category": "Crypto", "volumeNum": 50000.0, "liquidityNum": 12000.0}
+]

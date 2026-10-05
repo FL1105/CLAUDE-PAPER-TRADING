@@ -1,0 +1,10 @@
+[
+ {"proxyWallet": "0x1111111111111111111111111111111111111111", "side": "BUY", "asset": "5555555555555555555555", "conditionId": "0xc7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7",
+  "size": 100.0, "price": 0.61, "timestamp": 1759600000, "title": "ASSUMED: Will BTC be above 100k on Nov 1?",
+  "slug": "assumed-btc-100k", "outcome": "Yes", "outcomeIndex": 0,
+  "transactionHash": "0xdededededededededededededededededededededededededededededededede"},
+ {"proxyWallet": "0x2222222222222222222222222222222222222222", "side": "SELL", "asset": "6666666666666666666666", "conditionId": "0xc7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7",
+  "size": 25.5, "price": 0.39, "timestamp": 1759600005, "title": "ASSUMED: Will BTC be above 100k on Nov 1?",
+  "slug": "assumed-btc-100k", "outcome": "No", "outcomeIndex": 1,
+  "transactionHash": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"}
+]

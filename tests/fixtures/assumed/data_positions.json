@@ -1,0 +1,6 @@
+[
+ {"proxyWallet": "0x1111111111111111111111111111111111111111", "asset": "5555555555555555555555", "conditionId": "0xc7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7", "size": 100.0,
+  "avgPrice": 0.61, "initialValue": 61.0, "currentValue": 62.0, "cashPnl": 1.0, "percentPnl": 1.64,
+  "totalBought": 100.0, "realizedPnl": 0.0, "curPrice": 0.62, "redeemable": false,
+  "outcome": "Yes", "outcomeIndex": 0, "endDate": "2026-11-01", "negativeRisk": false}
+]

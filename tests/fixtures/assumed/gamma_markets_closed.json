@@ -1,0 +1,15 @@
+[
+ {"id": "100001", "question": "ASSUMED: Will X happen by Dec 31?", "conditionId": "0xa5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+  "slug": "assumed-will-x-happen", "endDate": "2025-12-31T12:00:00Z",
+  "closedTime": "2026-01-01 03:12:45+00", "closed": true, "active": true, "archived": false,
+  "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"1\", \"0\"]",
+  "clobTokenIds": "[\"1111111111111111111111\", \"2222222222222222222222\"]",
+  "negRisk": false, "category": "Politics", "umaResolutionStatus": "resolved",
+  "volumeNum": 123456.78, "liquidityNum": 0},
+ {"id": "100002", "question": "ASSUMED: Voided market (50-50)", "conditionId": "0xb6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6",
+  "slug": "assumed-voided", "endDate": "2025-11-30T00:00:00Z",
+  "closedTime": "2025-12-02T10:00:00Z", "closed": true, "active": true, "archived": false,
+  "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.5\", \"0.5\"]",
+  "clobTokenIds": "[\"3333333333333333333333\", \"4444444444444444444444\"]",
+  "negRisk": false, "umaResolutionStatus": "resolved", "volumeNum": 999.0}
+]

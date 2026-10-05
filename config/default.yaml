@@ -1,0 +1,128 @@
+# polybot configuration. ALL thresholds and parameters live here.
+#
+# RULE: gate thresholds are fixed BEFORE any evaluation and changed only by an
+# explicit human edit that bumps `config_version` and adds an entry to the
+# changelog in docs/GATES.md. The config hash is stamped on every paper fill and
+# report; gate 12 (data integrity) fails if it changes mid forward-test.
+
+config_version: 1
+seed: 20261005
+
+api:
+  gamma_base_url: "https://gamma-api.polymarket.com"
+  data_base_url: "https://data-api.polymarket.com"
+  clob_base_url: "https://clob.polymarket.com"
+  # Conservative default; verify against real rate-limit headers via `polybot probe`.
+  rate_limit_per_sec: 2.0
+  rate_limit_burst: 4
+  timeout_s: 15.0
+  max_retries: 5
+  backoff_base_s: 0.5
+  backoff_max_s: 30.0
+  user_agent: "polybot-research/0.1 (read-only paper trading)"
+  cache_dir: "out/cache"
+
+storage:
+  db_path: "out/polybot.sqlite"
+
+stats:
+  fdr_q: 0.10                       # Benjamini-Hochberg FDR level
+  stake_cap_quantile: 0.95          # w = min(cost_usdc, cap), cap = this quantile of position cost
+  alpha: 0.05
+  power: 0.80
+  naive_top_n: 20                   # size of the naive "top by PnL" contrast list
+  bootstrap_resamples: 5000
+  small_n_exact_threshold: 30       # below this many markets, use exact/permutation p-values
+
+filters:
+  min_resolved_markets: 30
+  min_active_span_days: 20
+  max_two_sided_ratio: 0.20         # share of markets where the wallet bought both sides
+  max_trades_per_day: 200
+  max_closed_before_resolution_ratio: 0.50
+  min_entry_price: 0.05
+  max_entry_price: 0.90
+  max_single_market_pnl_share: 0.40
+  flag_wash_trading: true           # flag, never silently drop
+
+walkforward:
+  epoch_days: 14
+  trailing_window_days: 60
+
+placebo:
+  n_draws: 200
+  required_percentile: 95.0
+
+execution:
+  latency_L_s: 2.0                  # shadow books at 1xL, 2xL, 5xL
+  shadow_multipliers: [1, 2, 5]
+  drift_half_life_s: 30.0           # simulation-mode drift toward informed value
+  max_chase: 0.03
+  insufficient_depth: "reject"      # "reject" | "partial"
+  default_tick_size: 0.01
+  max_median_slippage: 0.02         # gate 9 cap (price units)
+
+fees:
+  # DEFAULT ASSUMPTION (UNVERIFIED, see docs/ASSUMPTIONS.md):
+  #   fee = fee_coeff * shares * p * (1 - p)
+  formula: "parabolic"
+  default_coeff: 0.05
+  per_category: {}                  # e.g. {"crypto": 0.05, "sports": 0.0}
+  zero_fee_categories: []
+  stress_multiplier: 2.0
+
+paper:
+  bankroll_usdc: 1000.0
+  stake_frac: 0.005
+  max_market_frac: 0.02
+  max_total_exposure_frac: 0.30
+  max_concurrent_positions: 50
+  poll_interval_s: 10
+  heartbeat_interval_s: 60
+
+gates:
+  min_forward_days: 30
+  min_settled_trades: 300
+  min_distinct_markets: 120
+  min_epochs: 3
+  bootstrap_ci_level: 0.95
+  persistence_min_pooled_z: 1.64
+  persistence_min_positive_frac: 0.55
+  latency_must_survive_multiplier: 2
+  remove_top_k_trades: 3
+  max_single_market_pnl_share: 0.10
+  max_single_wallet_pnl_share: 0.35
+  min_fill_rate: 0.85
+  max_drawdown_frac: 0.20
+  losing_streak_percentile: 99.0
+  min_positive_epoch_frac: 0.60
+  max_epoch_loss_frac: 0.05         # "no epoch worse than -X%" of bankroll
+  schema_drift_lookback_days: 7
+
+micro_live:                         # S3 evaluator spec only; no trading code exists
+  max_slippage_ratio: 1.5
+  min_fill_rate: 0.80
+  min_fills: 100
+  min_days: 30
+
+kill_switches:
+  max_drawdown_frac: 0.20
+  rolling_window_trades: 50
+  rolling_roi_percentile: 1.0
+  slippage_ratio: 2.0
+  slippage_consecutive_days: 3
+  negative_oos_z_consecutive_epochs: 2
+
+synthetic:
+  n_markets: 3000
+  n_wallets: 2000
+  beta_a: 2.0
+  beta_b: 2.0
+  sigma_noise: 0.08
+  skilled_frac: 0.03
+  skilled_obs_noise: 0.02
+  skilled_threshold: 0.05
+  market_maker_frac: 0.02
+  acceptance_null_seeds: 300
+  acceptance_max_false_promotion: 0.01
+  acceptance_min_power: 0.80
