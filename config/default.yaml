@@ -123,6 +123,19 @@ synthetic:
   skilled_obs_noise: 0.02
   skilled_threshold: 0.05
   market_maker_frac: 0.02
+  # "calibrated": p0 ~ Beta(a,b), q ~ Beta with mean p0 and sd ~sigma_noise, so
+  #   E[y | p0] = p0 (the null hypothesis of the edge test holds exactly).
+  # "additive":   q ~ Beta(a,b), p0 = clip(q + N(0, sigma_noise)) (literal spec);
+  #   prices are then NOT calibrated given p0. See docs/DECISIONS.md D10.
+  price_model: "calibrated"
+  horizon_days: 180
+  activity_log_mean: 3.5            # markets per wallet ~ lognormal (heavy-tailed), median ~33
+  activity_log_sd: 1.0
+  max_markets_per_wallet: 600
+  skilled_scan_multiplier: 3.0      # skilled wallets scan this many x markets, trade only edges
+  stake_log_mean: 3.5               # cost per position ~ lognormal, median ~$33
+  stake_log_sd: 1.2
+  calibration_mc_sims: 2000
   acceptance_null_seeds: 300
   acceptance_max_false_promotion: 0.01
   acceptance_min_power: 0.80

@@ -168,6 +168,15 @@ class SyntheticConfig(_Frozen):
     skilled_obs_noise: float = Field(ge=0)
     skilled_threshold: float = Field(ge=0)
     market_maker_frac: float = Prob
+    price_model: Literal["calibrated", "additive"]
+    horizon_days: int = Field(ge=2)
+    activity_log_mean: float
+    activity_log_sd: float = Field(ge=0)
+    max_markets_per_wallet: int = Field(ge=1)
+    skilled_scan_multiplier: float = Field(ge=1)
+    stake_log_mean: float
+    stake_log_sd: float = Field(ge=0)
+    calibration_mc_sims: int = Field(ge=100)
     acceptance_null_seeds: int = Field(ge=1)
     acceptance_max_false_promotion: float = Prob
     acceptance_min_power: float = Prob

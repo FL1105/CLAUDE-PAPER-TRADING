@@ -47,3 +47,43 @@ There is no signing code, no key handling and no authenticated client.
 `tests/test_safety.py` scans `src/` and `scripts/` for order or key related
 patterns, including any HTTP verb other than GET. Adding a real-money path
 requires deleting that test, which a reviewer will see.
+
+## D10. Synthetic null world uses calibrated prices by default
+The build spec draws q ~ Beta and then p0 = clip(q + noise). With that
+construction prices are *not* calibrated given p0 (cheap tokens win more often
+than priced), so the edge test's null hypothesis does not hold exactly even for
+wallets with no information. The default `calibrated` model draws p0 first and
+q | p0 with mean p0 (sd ~ sigma_noise), which makes the null hold exactly. That
+isolates the question "is the test itself calibrated?". The literal spec model
+is kept as `price_model: additive`, and both are reported at every checkpoint.
+Real markets may be miscalibrated in the additive way (favorite-longshot bias).
+That is a reason to also match placebo wallets on entry-price profile (Phase 5).
+
+## D11. Null-world execution noise is mean-zero
+The first Phase 2 calibration run found the mean null z = -0.033 (pooled KS
+p ~ 1e-8). Cause: synthetic fills were placed 0 to 0.5 cents *above* the public
+price, so null wallets were slight net losers. The test was right and the world
+was wrong. Fills now have mean-zero noise. Real copy trading *does* pay the
+spread; that cost is modeled explicitly in Phase 4 (book walk, fees), not hidden
+in the null world.
+
+## D12. Small-sample p-values by seeded Monte-Carlo from the Bernoulli null
+For wallets with fewer than `stats.small_n_exact_threshold` markets the normal
+approximation is unreliable, so p-values are simulated directly from
+y_i ~ Bernoulli(p_i) with (1 + #exceed) / (B + 1). This is valid and slightly
+conservative for a discrete statistic. Wallets this small are ineligible for
+selection anyway (min 30 markets), but the report still shows them correctly.
+
+## D13. Per-wallet detection power is low against modest skill (finding, not a fix)
+In the default skilled world (3% of wallets, about 10 cents per share of edge,
+about 40 in-sample markets), z is about 1.3. BH across about 540 eligible
+wallets needs z of about 3.5, so it usually selects nobody. Detection appears
+only with more activity or larger edge. Across all skill levels tried, the
+false-discovery proportion stayed near q = 0.10. We do not loosen q to
+"find" more. The system is built to say "no edge" when evidence is thin. Phase
+5 will report power at the default skill and at stronger skill levels.
+
+## D14. Experiments module
+`src/polybot/experiments.py` (not in the spec layout) holds the synthetic
+experiments behind `polybot simulate`. Phase 5 extends it with the full
+pipeline, gates and false-promotion rate.

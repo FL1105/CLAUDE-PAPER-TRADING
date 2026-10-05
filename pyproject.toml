@@ -38,9 +38,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not slow and not network'"
 markers = [
     "network: hits real Polymarket endpoints (deselected by default; run with -m network)",
+    "slow: full-size synthetic acceptance runs (deselected by default; run with -m slow)",
 ]
 
 [tool.ruff]

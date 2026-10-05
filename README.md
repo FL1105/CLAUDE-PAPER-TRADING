@@ -21,8 +21,8 @@ wallets?* "No edge" is a valid, successful answer.
 | Phase | Scope | State |
 |---|---|---|
 | 1 | scaffold, config, API client, adapter layer, probe, docs | **done** (API schemas unverified, see below) |
-| 2 | stats core, synthetic worlds, null calibration | next |
-| 3 | store, backfill, resolution, selection, walk-forward + leakage test | |
+| 2 | stats core, synthetic worlds, null calibration | **done**, see `docs/CHECKPOINT_PHASE2.md` |
+| 3 | store, backfill (+ on-chain history import), resolution, selection, walk-forward + leakage test | next |
 | 4 | execution: book walk, fees, chase, paper executor, ledger | |
 | 5 | gates, stress, placebo, bootstrap, ladder, kill switches | |
 | 6 | forward paper loop, settle, report, dashboard, runbook | |
@@ -54,6 +54,9 @@ src/polybot/
   data/schemas.py       adapter layer: raw JSON -> validated records
   data/probe.py         endpoint probe + ASSUMPTIONS writer
   execution/live.py     stub only (raises)
-  stats/ selection/ execution/ strategies/ gates/ report/   (later phases)
+  data/synthetic.py     seeded null / skilled worlds
+  stats/                edge z-test, BH-FDR, cluster bootstrap + power, calibration
+  experiments.py        synthetic experiments behind `polybot simulate`
+  selection/ execution/ strategies/ gates/ report/   (later phases)
 tests/                  unit tests; fixtures/assumed (hand-written), fixtures/live (from probe)
 ```

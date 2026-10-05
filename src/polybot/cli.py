@@ -119,12 +119,48 @@ def report() -> None:
 
 @app.command()
 def simulate(
-    world: str = typer.Option("null", "--world"),
+    world: str = typer.Option("null", "--world", help="null | skilled"),
     seeds: int = typer.Option(300, "--seeds"),
-    latency_ratio: float = typer.Option(0.1, "--latency-ratio"),
+    latency_ratio: float = typer.Option(
+        0.1, "--latency-ratio", help="used from Phase 4/5 (execution + gates)"
+    ),
+    price_model: str | None = typer.Option(
+        None, "--price-model", help="calibrated | additive (default: config)"
+    ),
+    demo_seeds: int = typer.Option(
+        50, "--demo-seeds", help="seeds for the naive-vs-BH selection demo"
+    ),
+    config: Path | None = ConfigOpt,
 ) -> None:
-    """Run synthetic-world validation."""
-    _not_yet("simulate", 2)
+    """Synthetic-world validation: p-value calibration + selection-bias demo.
+
+    Phase 2 scope. Full pipeline + gates + latency (false-promotion rate, power)
+    are added in Phase 5.
+    """
+    from polybot.data.synthetic import World
+    from polybot.experiments import null_calibration, selection_bias_over_seeds
+
+    if world not in ("null", "skilled"):
+        raise typer.BadParameter("world must be null or skilled")
+    cfg = load_config(config)
+    seed_list = [cfg.seed + i for i in range(seeds)]
+    result: dict[str, object] = {"config_hash": config_hash(cfg), "world": world}
+    if world == "null":
+        result["calibration"] = null_calibration(cfg, seed_list, price_model)
+    wld: World = "null" if world == "null" else "skilled"
+    result["selection_bias"] = selection_bias_over_seeds(
+        cfg, seed_list[:demo_seeds], wld, price_model
+    )
+    result["note"] = (
+        f"latency_ratio={latency_ratio} not used until Phase 4/5; "
+        "gates/false-promotion rate not yet implemented"
+    )
+    text = json.dumps(result, indent=1, sort_keys=True)
+    out = ROOT / "out"
+    out.mkdir(exist_ok=True)
+    pm = price_model or cfg.synthetic.price_model
+    (out / f"simulate_{world}_{pm}.json").write_text(text + "\n")
+    typer.echo(text)
 
 
 @app.command()
