@@ -147,7 +147,7 @@ def analyze(
 ) -> dict[str, float | int | None]:
     """Buy the favourite at the real ask seen ``offset_s`` before the end (acting after lag)."""
     con = open_db(db)
-    n = wins = 0
+    n = wins = seen_n = 0
     cost = pnl = 0.0
     spreads: list[float] = []
     for start, end, up_won in con.execute(
@@ -161,6 +161,7 @@ def analyze(
         ).fetchone()
         if seen is None or t_dec - seen[0] > max_stale_s or seen[1] is None or seen[2] is None:
             continue
+        seen_n += 1
         up_fav = (seen[1] + seen[2]) / 2 >= 0.5
         # ... and the order lands lag_s later: pay the ask of the first snapshot at/after that
         fill = con.execute(
@@ -183,6 +184,7 @@ def analyze(
         spreads.append(ask - bid)
     con.close()
     return {
+        "windows_seen": seen_n,
         "windows": n,
         "win_rate": wins / n if n else None,
         "roi_net_per_dollar": pnl / cost if cost else None,
