@@ -86,10 +86,10 @@ def test_probe_detects_drift(cfg: Config, tmp_path: Path) -> None:
 def test_markdown_section_replaced_in_place(cfg: Config, tmp_path: Path) -> None:
     r = run(cfg, tmp_path)
     doc = tmp_path / "A.md"
-    doc.write_text("# Title\n\nhand-written text\n")
+    doc.write_text("# Title\n\nhand-written text\n", encoding="utf-8")
     write_assumptions(doc, render_markdown(r))
     write_assumptions(doc, render_markdown(r))  # idempotent: one section, text preserved
-    text = doc.read_text()
+    text = doc.read_text(encoding="utf-8")
     assert text.count(BEGIN) == 1 and text.count(END) == 1
     assert "hand-written text" in text and "PARTIAL: " in text  # fee-rate 404s in the fake
 

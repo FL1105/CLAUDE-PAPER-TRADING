@@ -17,11 +17,11 @@ from polybot.data.synthetic import DAY, T0, generate_world
 
 
 def test_pipeline_from_csv_import(tmp_path: Path) -> None:
-    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())
+    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
     raw["storage"]["db_path"] = str(tmp_path / "db.sqlite")
     raw["synthetic"].update({"n_markets": 800, "n_wallets": 400, "calibration_mc_sims": 200})
     cfg_path = tmp_path / "cfg.yaml"
-    cfg_path.write_text(yaml.safe_dump(raw))
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     cfg = load_config(cfg_path)
 
     w = generate_world(cfg.synthetic, 3, "null")

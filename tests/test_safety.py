@@ -44,7 +44,11 @@ def test_live_executor_is_a_stub() -> None:
 
 @pytest.mark.parametrize("pattern", FORBIDDEN)
 def test_no_real_money_code_paths(pattern: str) -> None:
-    hits = [str(p.relative_to(ROOT)) for p in SCANNED if re.search(pattern, p.read_text(), re.I)]
+    hits = [
+        str(p.relative_to(ROOT))
+        for p in SCANNED
+        if re.search(pattern, p.read_text(encoding="utf-8"), re.I)
+    ]
     assert not hits, f"forbidden pattern {pattern!r} found in {hits}"
 
 

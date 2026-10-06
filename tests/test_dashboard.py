@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-HTML = (Path(__file__).resolve().parents[1] / "dashboard.html").read_text()
+HTML = (Path(__file__).resolve().parents[1] / "dashboard.html").read_text(encoding="utf-8")
 
 
 def test_no_network_or_cdn() -> None:

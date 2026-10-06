@@ -34,10 +34,14 @@ API schemas are *assumed*. Run `polybot probe` first. See
 
 ## Quick start
 
+**Windows:** `powershell -ExecutionPolicy Bypass -File .\setup.ps1` (see docs/RUNBOOK.md, section 1b).
+**Mac / Linux:**
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
+polybot doctor                    # checks this machine; says what to fix
 polybot probe                     # verify the real API first
 polybot backfill --days 90        # and/or: polybot history import ...
 polybot backtest --days 90        # can reach tier Common at most

@@ -323,7 +323,7 @@ class ForwardLoop:
         }
         self.store.set_meta("heartbeat", json.dumps(beat))
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        (self.out_dir / "heartbeat.json").write_text(json.dumps(beat, indent=1))
+        (self.out_dir / "heartbeat.json").write_text(json.dumps(beat, indent=1), encoding="utf-8")
         log.info("heartbeat %s", beat)
 
     # --- run -----------------------------------------------------------------------------

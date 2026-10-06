@@ -7,8 +7,10 @@ nothing. Unbuilt commands exit non-zero with the phase that will implement them.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,6 +24,12 @@ if TYPE_CHECKING:
     from polybot.data.client import HttpClient
     from polybot.data.store import Store
     from polybot.forward import ForwardLoop
+
+# Windows writes redirected output (e.g. a scheduled task's log file) in a legacy code
+# page that cannot encode characters like "->" arrows; always emit UTF-8 instead.
+for _stream in (sys.stdout, sys.stderr):
+    with contextlib.suppress(AttributeError, ValueError):
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 app = typer.Typer(
     add_completion=False,
@@ -62,7 +70,9 @@ def probe(
         report = Prober(PolymarketClient(http), fixtures_dir).run()
     out = ROOT / "out"
     out.mkdir(exist_ok=True)
-    (out / "probe_report.json").write_text(json.dumps(report.to_json(), indent=1, default=str))
+    (out / "probe_report.json").write_text(
+        json.dumps(report.to_json(), indent=1, default=str), encoding="utf-8"
+    )
     failed = [s.name for s in report.steps if not s.ok]
     drift = [k for k, v in report.drift.items() if v.startswith("DRIFT")]
     if not report.steps or len(failed) == len(report.steps):
@@ -80,6 +90,20 @@ def probe(
     if drift:
         typer.echo("SCHEMA DRIFT: fix data/schemas.py before building on this data.", err=True)
         raise typer.Exit(code=3)
+
+
+@app.command()
+def doctor(
+    config: Path | None = ConfigOpt,
+    offline: bool = typer.Option(False, "--offline", help="skip the network checks"),
+) -> None:
+    """Check this machine is ready (Python, packages, network, database, forward run)."""
+    from polybot.doctor import FAIL, render, run
+
+    checks = run(ROOT, config, offline=offline)
+    typer.echo(render(checks))
+    if any(c.status == FAIL for c in checks):
+        raise typer.Exit(code=1)
 
 
 @app.command("config-hash")
@@ -138,7 +162,11 @@ def backfill(
                     err=True,
                 )
             if wallets_file is not None:
-                ws = [w.strip() for w in wallets_file.read_text().splitlines() if w.strip()]
+                ws = [
+                    w.strip()
+                    for w in wallets_file.read_text(encoding="utf-8").splitlines()
+                    if w.strip()
+                ]
                 out["wallets"] = {w: ing.backfill_wallet(w, start, end).__dict__ for w in ws}
         out["markets"] = ing.refresh_markets().__dict__
         out["counts"] = {
@@ -314,7 +342,9 @@ def backtest(
         "SYNTHETIC spread/depth assumption (docs/ASSUMPTIONS.md section 7).",
     }
     (ROOT / "out").mkdir(exist_ok=True)
-    (ROOT / "out" / "backtest.json").write_text(json.dumps(out, indent=1, default=str))
+    (ROOT / "out" / "backtest.json").write_text(
+        json.dumps(out, indent=1, default=str), encoding="utf-8"
+    )
     typer.echo(f"tier={lad.tier} next={lad.next_tier} promoted={r.promoted}")
     for g in r.gates:
         typer.echo(f"  {'PASS' if g.passed else 'fail'}  {g.name:28s} {g.observed}")
@@ -449,7 +479,7 @@ def simulate(
     out = ROOT / "out"
     out.mkdir(exist_ok=True)
     pm = price_model or cfg.synthetic.price_model
-    (out / f"simulate_{world}_{pm}.json").write_text(text + "\n")
+    (out / f"simulate_{world}_{pm}.json").write_text(text + "\n", encoding="utf-8")
     typer.echo(text)
 
 
@@ -468,7 +498,7 @@ def gates(
             f"{source} not found. Run `polybot backtest` or `polybot report` first.", err=True
         )
         raise typer.Exit(code=1)
-    data = json.loads(source.read_text())
+    data = json.loads(source.read_text(encoding="utf-8"))
     lad = data["ladder"]
     typer.echo(
         f"Evidence: {data.get('evidence_mode')}   tier: {lad['tier']}   next: {lad['next_tier']}"

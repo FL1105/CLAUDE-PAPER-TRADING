@@ -11,12 +11,12 @@ from polybot.config import DEFAULT_CONFIG_PATH, Config, config_hash, load_config
 
 def _write(tmp_path: Path, data: dict) -> Path:
     p = tmp_path / "c.yaml"
-    p.write_text(yaml.safe_dump(data))
+    p.write_text(yaml.safe_dump(data), encoding="utf-8")
     return p
 
 
 def _raw() -> dict:
-    return yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())
+    return yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
 
 
 def test_default_config_loads(cfg: Config) -> None:

@@ -142,7 +142,7 @@ LIVE_FILES = sorted(p for p in LIVE.glob("*.json") if p.stem in PARSERS) if LIVE
 @pytest.mark.skipif(not LIVE_FILES, reason="no live fixtures yet: run `polybot probe`")
 @pytest.mark.parametrize("path", LIVE_FILES, ids=lambda p: p.stem)
 def test_adapters_accept_live_fixtures(path: Path) -> None:
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     items = payload if isinstance(payload, list) else [payload]
     assert items, f"{path.name} is empty"
     for it in items:

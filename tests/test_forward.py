@@ -159,7 +159,9 @@ def test_full_forward_cycle(env) -> None:  # type: ignore[no-untyped-def]
 
     rep = write_outputs(loop2.store, c, tmp / "rep", now=int(T0 + 200))
     assert rep["summary"]["settled_trades"] == 1 and rep["ladder"]["tier"] is None
-    assert (tmp / "rep" / "trades.csv").read_text().count("\n") == 4  # header + 3 signals
+    assert (tmp / "rep" / "trades.csv").read_text(encoding="utf-8").count(
+        "\n"
+    ) == 4  # header + 3 signals
     assert rep["latency_curve"] and rep["equity"]
 
 

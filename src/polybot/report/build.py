@@ -329,7 +329,7 @@ def build_report(
         ],
     }
     if backtest_path is not None and backtest_path.exists():
-        bt = json.loads(backtest_path.read_text())
+        bt = json.loads(backtest_path.read_text(encoding="utf-8"))
         report["backtest"] = {
             "tier": bt["ladder"]["tier"],
             "replay": bt.get("replay_summary"),
@@ -382,7 +382,9 @@ def write_outputs(
 ) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     rep = build_report(store, cfg, now, backtest_path, evidence_mode)
-    (out_dir / "report.json").write_text(json.dumps(rep, indent=1, default=str, sort_keys=True))
+    (out_dir / "report.json").write_text(
+        json.dumps(rep, indent=1, default=str, sort_keys=True), encoding="utf-8"
+    )
     trades_csv(store).to_csv(out_dir / "trades.csv", index=False)
     pd.DataFrame(rep["equity"], columns=["ts", "equity", "drawdown"]).to_csv(
         out_dir / "equity.csv", index=False

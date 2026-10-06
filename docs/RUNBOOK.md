@@ -19,6 +19,38 @@ pip install -e ".[dev]"
 pytest                             # should be all green
 ```
 
+## 1b. Windows (one command)
+
+1. Install git if you don't have it (`winget install Git.Git`), or download the
+   repository as a ZIP from GitHub and unzip it.
+2. Open **PowerShell** in the repository folder and run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\setup.ps1
+   ```
+   It installs Python 3.12 if needed (via winget), creates `.venv`, installs
+   everything, runs the tests and finishes with `polybot doctor`. Re-running is safe.
+   If it says Python was installed but isn't on PATH, close PowerShell, open a new
+   one and run it again.
+3. In every new PowerShell window, activate the environment first:
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   ```
+   If Windows refuses to run it, run once:
+   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+4. `polybot doctor` checks everything (Python, packages, network, database,
+   forward run, heartbeat, kill switch) and tells you what to fix.
+
+**Keeping the forward run alive on Windows:**
+```powershell
+.\scripts\windows\install-paper-task.ps1 -NoSleep   # scheduled task: starts at log-on, restarts on crash
+Get-Content out\paper.log -Tail 20 -Wait              # watch it
+.\scripts\windows\uninstall-paper-task.ps1           # stop and remove (data is kept)
+```
+`-NoSleep` stops the PC from sleeping while plugged in. The task runs while you are
+logged in, so lock the screen rather than signing out, and turn off automatic
+restarts for updates (Settings > Windows Update > Advanced options) or check
+`polybot doctor` after an update.
+
 ## 2. Verify the API (do this first)
 
 ```bash
