@@ -29,7 +29,9 @@ wallets?* "No edge" is a valid, successful answer.
 | 7 | optional strategy B (`btc_lag`) | not started (optional) |
 
 **Important:** Phase 1 was built without network access to Polymarket, so the
-API schemas are *assumed*. Run `polybot probe` first. See
+Update 2026-10-06: `polybot probe` has run against the real API (no drift); first real-data results
+are in `docs/RESULTS_2026-10-06.md` (short version: no copyable wallet edge found).
+API schemas were originally *assumed*. Run `polybot probe` first. See
 `docs/ASSUMPTIONS.md` and `docs/RUNBOOK.md`.
 
 ## Quick start
@@ -49,6 +51,18 @@ polybot paper                     # the forward run: leave it running 30+ days
 polybot report                    # then open dashboard.html
 ```
 Full instructions: `docs/RUNBOOK.md`. Results and what is verified: `docs/FINAL_SUMMARY.md`.
+
+## Research tools added after the first build
+
+```bash
+polybot history import|markets    # real history from the Hugging Face dataset (docs/HISTORY_IMPORT.md)
+scripts/hf_pipeline.sh NAME START END SAMPLE   # one windowed walk-forward run, own DB in out/NAME/
+polybot fleet init|run|report     # several candidate configs side by side + comparison page
+polybot maker record|sim          # record real books/tape, replay a conservative passive maker
+scripts/markout_study.py          # taker markout (what liquidity providers earned)
+scripts/btc_updown_study.py       # calibration of BTC up/down markets near expiry
+scripts/overnight.sh              # unattended research queue (needs a machine that stays up)
+```
 
 ## Layout
 
