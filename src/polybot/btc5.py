@@ -43,8 +43,10 @@ def open_db(path: Path) -> sqlite3.Connection:
     return con
 
 
-def _window(client: PolymarketClient, start: int) -> dict[str, Any] | None:
-    raw = client.markets(slug=f"btc-updown-5m-{start}")
+def _window(client: PolymarketClient, start: int, *, closed: bool = False) -> dict[str, Any] | None:
+    # Gamma hides closed markets from slug lookups unless closed=true is passed (verified).
+    extra = {"closed": "true"} if closed else {}
+    raw = client.markets(slug=f"btc-updown-5m-{start}", **extra)
     if not isinstance(raw, list) or not raw:
         return None
     m = raw[0]
@@ -62,7 +64,7 @@ def resolve_pending(client: PolymarketClient, con: sqlite3.Connection, now: floa
     for (start,) in con.execute(
         "SELECT start_ts FROM btc5_windows WHERE up_won IS NULL AND end_ts < ?", (now - 90,)
     ).fetchall():
-        w = _window(client, start)
+        w = _window(client, start, closed=True)
         if w is None or not w["raw"].get("closed"):
             continue
         try:
