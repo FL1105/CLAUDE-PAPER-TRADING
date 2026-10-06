@@ -1,6 +1,6 @@
 # Research config for the 90-day imported history: shorter trailing window so that
 # 42d trailing + 48d evaluation yields 3 epochs. NOT the forward-run config.
-config_version: 1
+config_version: 2
 seed: 20261005
 api:
   gamma_base_url: https://gamma-api.polymarket.com
@@ -67,8 +67,19 @@ execution:
 fees:
   formula: parabolic
   default_coeff: 0.05
-  per_category: {}
-  zero_fee_categories: []
+  per_category:
+    crypto: 0.07
+    sports: 0.05
+    finance: 0.04
+    politics: 0.04
+    mentions: 0.04
+    tech: 0.04
+    economics: 0.05
+    culture: 0.05
+    weather: 0.05
+  zero_fee_categories:
+  - geopolitics
+  - world
   stress_multiplier: 2.0
 paper:
   bankroll_usdc: 1000.0

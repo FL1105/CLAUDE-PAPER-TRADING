@@ -69,24 +69,26 @@ adapter sorts explicitly: asks ascending, bids descending.
   alone and per-wallet `/activity` (with `start`/`end`) or per-market queries
   are needed. The real achievable window will be recorded here by the probe.
 
-## 4. Fees (UNVERIFIED, configurable)
+## 4. Fees (VERIFIED against docs.polymarket.com/trading/fees, read 2026-10-06)
 
-Default model (spec section 5.4, `config/default.yaml: fees`):
+    fee = C * feeRate * p * (1 - p)      C = shares traded, p = share price
 
-    fee = fee_coeff * shares * p * (1 - p)        fee_coeff default 0.05
+This is exactly the model's parabolic formula; only the coefficient varies by category.
+- Only **takers** pay. "Makers are never charged fees."
+- Taker `feeRate` by category: Crypto 0.07; Sports 0.05; Finance, Politics, Mentions, Tech 0.04;
+  Economics, Culture, Weather, Other 0.05; **Geopolitics and world events 0 (fee-free)**.
+- Maker rebate (share of taker fees returned to makers): Crypto 20%; Sports 15%; Finance,
+  Politics, Mentions, Tech, Economics, Culture, Weather, Other 25%.
+- Gamma markets expose it per market: `feesEnabled` and `feeSchedule`
+  (`{rate, exponent, takerOnly, rebateRate}`). Observed 2026-10-06 on the 40 busiest markets:
+  36 fee-bearing with rate 0.03 to 0.07 and exponent 1, 4 fee-free. `/fee-rate` returns
+  `base_fee` 1000 for fee-bearing and 0 for fee-free tokens.
+- Peak fee at p = 0.5: rate 0.07 is 1.75% of notional, 0.05 is 1.25%, 0.04 is 1.0%.
+- The maker replay (`polybot maker sim`) ignores rebates, which understates a maker's income.
 
-Polymarket reportedly introduced price-dependent taker fees on some market
-categories in 2026. Neither the formula, the coefficient, nor which categories are
-fee-bearing was checked (docs host blocked). To do on a networked machine:
-
-1. Read the official fee documentation and record the formula, coefficients and
-   categories here, with the date read.
-2. Check whether `/fee-rate` or any Gamma market field (the probe lists all keys
-   containing "fee") exposes per-market fee data.
-3. Update `fees` in the config (with a `config_version` bump and a GATES.md
-   changelog entry) if anything differs.
-
-All gates are evaluated at 1x and 2x the fee coefficient regardless.
+The category names in `config/default.yaml: fees.per_category` follow the docs; the imported
+Hugging Face markets carry no category, so uncategorised markets use `default_coeff` (0.05).
+Config version 2 (see docs/GATES.md changelog).
 
 ## 5. Rate limits (UNVERIFIED)
 
