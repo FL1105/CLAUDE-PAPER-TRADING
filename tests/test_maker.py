@@ -65,3 +65,10 @@ def test_liquid_tokens_skips_tight_and_inactive_markets() -> None:
             return [mk("a", 0.001, 9e6), mk("b", 0.02, 1e5), mk("c", 0.04, 6e4), mk("d", 0.05, 100)]
 
     assert liquid_tokens(Fake(), 5) == [("c", "cY"), ("b", "bY")]  # ranked by volume x spread
+
+
+def test_rebates_estimated_but_not_in_pnl() -> None:
+    p = MakerParams(quote_usd=10.0, fee_rate=0.05, rebate_frac=0.2)
+    r = simulate_token([BOOK(0), BOOK(10)], [(5, 0.48, 5.0, "SELL")], p)
+    assert r.rebates == pytest.approx(0.2 * 0.05 * 5.0 * 0.50 * 0.50)
+    assert r.pnl == pytest.approx(-5.0 * 0.50 + 5.0 * 0.52)

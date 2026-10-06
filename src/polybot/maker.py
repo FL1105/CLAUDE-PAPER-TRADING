@@ -10,7 +10,8 @@ Assumptions (all chosen to understate profit):
     * Orders are re-posted at every book snapshot and join the BACK of the queue: the
       displayed size at our price must trade first before we fill.
     * A taker trade strictly through our price fills us fully (no queue).
-    * No maker rebates, no fee refunds; the maker fee is 0.
+    * pnl excludes maker rebates (the docs return 15-25% of taker fees to makers); they are
+      estimated separately as est_rebates_usd. The maker fee is 0.
     * Inventory is marked at the last mid. No market resolved during the run is credited
       with its settlement, so tail losses are only visible if the price moved.
     * Snapshots are sampled every few seconds: fills between snapshots are credited to the
@@ -146,6 +147,8 @@ class MakerParams:
     max_inventory_usd: float = 50.0
     min_spread: float = 0.02  # only quote when the book is at least this wide
     tick: float = 0.01
+    fee_rate: float = 0.05  # taker feeRate of the market (docs: 0.03 to 0.07, 0 if fee-free)
+    rebate_frac: float = 0.20  # share of the taker fee returned to makers (docs: 15 to 25%)
 
 
 @dataclass
@@ -157,6 +160,7 @@ class TokenResult:
     inventory: float = 0.0
     last_mid: float | None = None
     max_inventory_usd: float = 0.0
+    rebates: float = 0.0  # estimated maker rebate on our fills; NOT included in pnl
 
     @property
     def pnl(self) -> float:
@@ -207,6 +211,7 @@ def simulate_token(
                     res.inventory += q
                     res.fills_buy += 1
                     res.volume_usd += q * my_bid
+                    res.rebates += p.rebate_frac * p.fee_rate * q * my_bid * (1 - my_bid)
             elif side == "BUY" and price >= my_ask - 1e-9 and res.inventory > 0:
                 if price > my_ask + 1e-9:
                     avail = size
@@ -221,6 +226,7 @@ def simulate_token(
                 res.inventory -= q
                 res.fills_sell += 1
                 res.volume_usd += q * my_ask
+                res.rebates += p.rebate_frac * p.fee_rate * q * my_ask * (1 - my_ask)
             res.max_inventory_usd = max(res.max_inventory_usd, res.inventory * my_bid)
     return res
 
@@ -238,6 +244,8 @@ class SimReport:
             "fills": sum(x.fills_buy + x.fills_sell for x in r),
             "volume_usd": vol,
             "pnl_usd": pnl,
+            "est_rebates_usd": sum(x.rebates for x in r),
+            "pnl_plus_rebates_usd": pnl + sum(x.rebates for x in r),
             "pnl_per_dollar_traded": pnl / vol if vol else 0.0,
             "tokens_profitable": sum(1 for x in r if x.pnl > 0),
             "worst_token_pnl": min((x.pnl for x in r), default=0.0),
