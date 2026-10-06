@@ -598,3 +598,43 @@ def fleet_report(candidates: Path = CandDirOpt) -> None:
             f"pnl={r['summary']['pnl']:+.2f} 30d-range={rng}"
         )
     typer.echo(f"Wrote {FLEET_DIR / 'fleet.html'}")
+
+
+maker_app = typer.Typer(help="Passive market-making research: record real books, replay a maker.")
+app.add_typer(maker_app, name="maker")
+MAKER_DB = ROOT / "out" / "maker" / "maker.sqlite"
+
+
+@maker_app.command("record")
+def maker_record(
+    minutes: float = typer.Option(30.0, "--minutes"),
+    markets: int = typer.Option(15, "--markets", help="top-volume open markets to watch"),
+    interval: float = typer.Option(6.0, "--interval", help="seconds between snapshots"),
+    db: Path = typer.Option(MAKER_DB, "--db"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Record top-of-book snapshots and the trade tape for the most liquid markets."""
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.maker import liquid_tokens, record
+
+    _setup_logging(verbose)
+    cfg = load_config(None)
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        client = PolymarketClient(http)
+        wl = liquid_tokens(client, markets)
+        typer.echo(f"recording {len(wl)} markets for {minutes} min -> {db}")
+        typer.echo(json.dumps(record(client, db, wl, duration_s=minutes * 60, interval_s=interval)))
+
+
+@maker_app.command("sim")
+def maker_sim(
+    db: Path = typer.Option(MAKER_DB, "--db"),
+    quote_usd: float = typer.Option(10.0, "--quote-usd"),
+    max_inventory_usd: float = typer.Option(50.0, "--max-inventory-usd"),
+    min_spread: float = typer.Option(0.02, "--min-spread"),
+) -> None:
+    """Replay a conservative passive maker over the recorded books and tape."""
+    from polybot.maker import MakerParams, simulate
+
+    rep = simulate(db, MakerParams(quote_usd, max_inventory_usd, min_spread))
+    typer.echo(json.dumps(rep.summary(), indent=1))
