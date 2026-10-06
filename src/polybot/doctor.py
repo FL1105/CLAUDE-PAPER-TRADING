@@ -227,15 +227,27 @@ def _state(root: Path, cfg: Config) -> list[Check]:
             )
         )
         return out
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
-        n = {
-            t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-            for t in ("trades", "markets", "paper_fills", "paper_settlements", "frozen_sets")
-        }
-        meta = dict(con.execute("SELECT key, value FROM meta").fetchall())
-    finally:
-        con.close()
+        # as_uri() percent-escapes '#', '?' and '%' in folder names; ro = never modify
+        con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            n = {
+                t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                for t in ("trades", "markets", "paper_fills", "paper_settlements", "frozen_sets")
+            }
+            meta = dict(con.execute("SELECT key, value FROM meta").fetchall())
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        out.append(
+            Check(
+                FAIL,
+                "Database",
+                f"cannot read {db}: {exc}",
+                "Stop other polybot processes; if it persists, restore from a backup",
+            )
+        )
+        return out
     out.append(
         Check(
             OK if n["trades"] else WARN,

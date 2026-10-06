@@ -213,3 +213,31 @@ blocked by the 2-cent slippage cap and the 2x stress gate under the 1-cent
 synthetic half-spread, and passes at 0.5 cents. We do not loosen gates to reach
 the spec's 80% power. The binding constraint is copy cost, which the forward
 run's real books will measure.
+
+## D36. Fixes from the full code review (2026-10-06)
+A high-effort review of `src/` found ten issues. All were fixed, each with a regression test:
+- **Slippage kill switch was never fed.** The live loop now passes the daily median
+  slippage series and `kill_switches.modeled_slippage` (shared `live_kill_switches`).
+- **Backtest dedup used `tx_hash`.** One transaction can carry several fills. Replay
+  and fastsim now key signals on `trade_key`, like the live loop.
+- **Tape reference could be the wallet's own trade.** It is now the last trade strictly
+  after it, within `max(delay, execution.tape_min_window_s = 60 s)`. With no such trade
+  the signal is skipped as `no_reference_price`. The synthetic demo's ROI fell from
+  +39.5% to +33.0%: the old figure was flattered by fills at the whale's price.
+- **One malformed feed row re-halted the loop for 7 days after `resume`.** Kill-switch
+  drift now counts only since the last manual clearance (`halt_cleared_ts`).
+  Gate 12 still demands zero drift over 7 days.
+- **A non-list API payload aborted the whole loop iteration.** Poll and settlement
+  errors are now logged as anomalies, and shadows, settlement, kill checks and the
+  heartbeat keep running.
+- **Fill rate counted downtime as unfillable.** One shared rule
+  (`execution.paper.NOT_REACHED_PREFIXES`) is used by the backtest and live
+  evidence. It excludes stale, unknown-market, failed-fetch and no-reference signals,
+  plus capacity skips and halts.
+- **`polybot doctor` crashed on folders containing `#`, `%` or `?`, or on an unreadable
+  DB.** It now uses a URI-escaped read-only path and reports a FAIL with a fix.
+- **Kill-switch checks reloaded every trade.** They now load only the frozen wallets'
+  trades since the forward start.
+- **Duplicated logic.** `prepare_signals` (signal selection) and the tape lookup now
+  each have a single implementation that replay and fastsim share; the equivalence
+  test still passes.

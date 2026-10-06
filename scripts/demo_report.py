@@ -15,7 +15,7 @@ from polybot.config import config_hash, load_config
 from polybot.data.schemas import MarketRecord, ResolutionStatus, TokenRecord, TradeRecord
 from polybot.data.store import Store
 from polybot.data.synthetic import DAY, T0, generate_world
-from polybot.execution.replay import replay, tape_price_fn
+from polybot.execution.replay import drift_price_fn, replay
 from polybot.report.build import write_outputs
 from polybot.selection.walkforward import walk_forward
 
@@ -105,12 +105,14 @@ with Store(db) as st:
     st.set_meta("forward_start_ts", str(start))
     st.set_meta("forward_config_hash", h)
     eps = [(e["start_ts"], e["end_ts"], tuple(e["selected"])) for e in wf.epochs]
+    # synthetic world: fill references drift toward the true probability (designed model)
+    q = w.markets.assign(market=w.markets["market"].map(lambda m: f"m{m}"))
     replay(
         trades,
         markets,
         eps,
         cfg,
-        tape_price_fn(trades),
+        drift_price_fn(q, cfg.execution.drift_half_life_s),
         evidence_mode="synthetic",
         config_hash=h,
         store=st,

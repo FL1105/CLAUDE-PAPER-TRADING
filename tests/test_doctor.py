@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _root(tmp_path: Path) -> Path:
-    (tmp_path / "config").mkdir()
+    (tmp_path / "config").mkdir(parents=True)
     shutil.copy(DEFAULT_CONFIG_PATH, tmp_path / "config" / "default.yaml")
     return tmp_path
 
@@ -86,3 +86,15 @@ def test_bad_config(tmp_path: Path) -> None:
 def test_windows_scripts_are_ascii() -> None:
     for p in [ROOT / "setup.ps1", *(ROOT / "scripts" / "windows").glob("*.ps1")]:
         assert p.read_bytes().isascii(), p  # Windows PowerShell 5.1 misreads non-ASCII
+
+
+def test_odd_folder_names_and_corrupt_db(tmp_path: Path) -> None:
+    root = _root(tmp_path / "C# work %20 ?x")
+    cfg = load_config(root / "config" / "default.yaml")
+    with Store(root / cfg.storage.db_path) as st:
+        st.set_meta("forward_start_ts", str(int(time.time())))
+    c = by(run(root, root / "config" / "default.yaml", offline=True))
+    assert c["Database"].status in (OK, WARN)  # readable despite '#', '%' and '?'
+    (root / cfg.storage.db_path).write_bytes(b"not a database at all" * 100)
+    c = by(run(root, root / "config" / "default.yaml", offline=True))
+    assert c["Database"].status == FAIL and "cannot read" in c["Database"].detail

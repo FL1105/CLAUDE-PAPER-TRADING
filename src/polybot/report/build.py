@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +32,10 @@ from polybot.backtest import placebo_sets
 from polybot.config import Config, config_hash
 from polybot.data.store import Store
 from polybot.execution.fastsim import fast_copy, prepare_signals
+from polybot.execution.paper import reached_book
 from polybot.execution.replay import tape_price_fn
 from polybot.gates import metrics as M  # noqa: N812
-from polybot.gates.ladder import kill_switches, ladder
+from polybot.gates.ladder import KillSwitch, kill_switches, ladder
 from polybot.selection.walkforward import oos_stats
 from polybot.stats.bootstrap import power_statement
 from polybot.stats.edge import build_units
@@ -128,8 +130,8 @@ def live_evidence(
     sigs = store.signals_frame()
     entries = sigs.loc[sigs["status"].isin(["filled", "skipped"])] if len(sigs) else sigs
     if len(entries):
-        own = entries["skip_reason"].fillna("").str.match(r"^(risk:|halted:)")
-        reached = int((~own).sum())
+        reasons = [None if r != r else r for r in entries["skip_reason"].tolist()]
+        reached = sum(reached_book(r) for r in reasons)  # same rule as the backtest
         filled = int((entries["status"] == "filled").sum())
     else:
         reached = filled = 0
@@ -141,7 +143,14 @@ def live_evidence(
         else None
     )
 
-    trades, markets = store.trades_frame(), store.markets_frame()
+    if with_placebo:
+        trades = store.trades_frame()
+    else:  # light mode (kill-switch checks): only the frozen wallets' forward-period trades
+        frozen = {w for e in epochs for w in e["selected"]}
+        trades = store.trades_frame(
+            wallets=frozen, since_ts=min((e["start_ts"] for e in epochs), default=start)
+        )
+    markets = store.markets_frame()
     final = markets[["market", "winning_outcome"]]
     per_ep, num, den, wz_all = [], 0.0, 0.0, []
     wz_epochs: list[dict[str, float]] = []
@@ -161,7 +170,7 @@ def live_evidence(
     strat_engine: float | None = None
     eps_sched = [(e["start_ts"], min(e["end_ts"], now), tuple(e["selected"])) for e in epochs]
     if with_placebo and any(e["selected"] for e in epochs) and len(trades):
-        pf = tape_price_fn(trades)
+        pf = tape_price_fn(trades, cfg.execution.tape_min_window_s)
         strat_engine = fast_copy(prepare_signals(trades, eps_sched, cfg), markets, cfg, pf).roi
         draws = placebo_sets(
             [{**e, "end_ts": min(e["end_ts"], now)} for e in epochs],
@@ -196,6 +205,32 @@ def live_evidence(
         config_hash_now=config_hash(cfg),
     )
     return ev, {"epochs": epochs, "signals": sigs, "fills": fills, "wallet_z": wz_epochs}
+
+
+def live_kill_switches(store: Store, cfg: Config, ev: M.Evidence, now: int) -> list[KillSwitch]:
+    """Kill switches with every input wired: the daily slippage series vs the modeled
+    slippage, and schema drift counted only since the last manual clearance (so one bad
+    feed row cannot re-halt the loop for a week after `polybot resume`)."""
+    cleared = int(store.get_meta("halt_cleared_ts") or 0)
+    since = max(now - cfg.gates.schema_drift_lookback_days * DAY, cleared)
+    ev_k = replace(ev, recent_drift_errors=store.drift_count_since(since))
+    return kill_switches(
+        ev_k,
+        cfg,
+        modeled_slippage=cfg.kill_switches.modeled_slippage,
+        daily_median_slippage=daily_median_slippage(store.fills_frame(), ev.mode),
+    )
+
+
+def daily_median_slippage(fills: pd.DataFrame, evidence_mode: str = "live_forward") -> list[float]:
+    """Median slippage (fill vs wallet price) per UTC day, oldest first (kill switch input)."""
+    if fills.empty:
+        return []
+    f = fills.loc[(fills["evidence_mode"] == evidence_mode) & fills["slippage"].notna()]
+    if f.empty:
+        return []
+    by_day = f.groupby(f["created_ts"] // DAY)["slippage"].median().sort_index()
+    return [float(x) for x in by_day.to_numpy()]
 
 
 def equity_series(st: pd.DataFrame, bankroll: float) -> list[dict[str, float]]:
@@ -319,7 +354,7 @@ def build_report(
             "top_wallet_share": M.concentration(st, "wallet") if len(st) else None,
         },
         "skip_reasons": {str(k): int(v) for k, v in skip.items()},
-        "kill_switches": [k.__dict__ for k in kill_switches(ev, cfg)],
+        "kill_switches": [k.__dict__ for k in live_kill_switches(store, cfg, ev, now)],
         "equity": equity_series(st, ev.bankroll),
         "anomalies": store.anomaly_counts(),
         "assumptions": [

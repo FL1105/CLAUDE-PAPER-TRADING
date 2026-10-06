@@ -316,7 +316,7 @@ def backtest(
         cfg,
         start_ts=start,
         end_ts=end,
-        price_at=tape_price_fn(trades),
+        price_at=tape_price_fn(trades, cfg.execution.tape_min_window_s),
         mode="backtest",
         seed=cfg.seed,
         config_hash=h,

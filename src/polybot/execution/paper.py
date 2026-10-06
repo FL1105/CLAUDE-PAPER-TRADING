@@ -37,6 +37,26 @@ from polybot.execution.book import FillResult, depth_within, walk_book
 from polybot.execution.fees import fee_coeff, fill_fee
 
 EvidenceMode = Literal["live_forward", "backtest", "synthetic"]
+
+# Skips for signals that never reached an order book: our own sizing or halts, or a
+# missing input (stale detection, unknown market, failed book fetch, no reference
+# price in a backtest). They are reported but excluded from the fill-rate denominator
+# (gate 9), so downtime or data gaps are not mistaken for unfillable signals.
+NOT_REACHED_PREFIXES = (
+    "risk:",
+    "halted:",
+    "stale_signal",
+    "unknown_market",
+    "book_fetch_error",
+    "no_reference_price",
+)
+CAPACITY_PREFIX = "risk:"
+
+
+def reached_book(skip_reason: str | None) -> bool:
+    return not (skip_reason or "").startswith(NOT_REACHED_PREFIXES)
+
+
 SignalKind = Literal["entry", "info_exit"]
 
 

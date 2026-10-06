@@ -34,8 +34,14 @@ import pandas as pd
 from polybot.config import Config
 from polybot.data.schemas import BookSnapshot
 from polybot.data.store import Store
-from polybot.execution.latency import drift_price, synthetic_asks
-from polybot.execution.paper import EvidenceMode, PaperExecutor, Signal
+from polybot.execution.latency import drift_price, synthetic_asks, tape_price
+from polybot.execution.paper import (
+    CAPACITY_PREFIX,
+    EvidenceMode,
+    PaperExecutor,
+    Signal,
+    reached_book,
+)
 
 PriceAt = Callable[[Mapping[str, Any], float], float | None]
 
@@ -56,8 +62,12 @@ def drift_price_fn(markets: pd.DataFrame, half_life_s: float) -> PriceAt:
     return f
 
 
-def tape_price_fn(trades: pd.DataFrame) -> PriceAt:
-    """Real-data backtests: last real trade price in the same token in [t, t + delay]."""
+def tape_price_fn(trades: pd.DataFrame, min_window_s: float = 0.0) -> PriceAt:
+    """Real-data backtests: last real trade in the same token in (t, t + max(delay, window)].
+
+    The wallet's own trade (at t) is excluded, so a market with no later trade in the
+    window gives no reference (the signal is skipped as no_reference_price) instead of
+    a fill at the whale's price."""
     groups = {
         k: (g["ts"].to_numpy(dtype=np.int64), g["price"].to_numpy(dtype=np.float64))
         for k, g in trades.sort_values("ts", kind="mergesort").groupby(["market", "outcome"])
@@ -66,11 +76,43 @@ def tape_price_fn(trades: pd.DataFrame) -> PriceAt:
     def f(tr: Mapping[str, Any], delay_s: float) -> float | None:
         ts, px = groups[(tr["market"], tr["outcome"])]
         t0 = int(tr["ts"])
-        hi = int(np.searchsorted(ts, t0 + delay_s, side="right"))
-        lo = int(np.searchsorted(ts, t0, side="left"))
-        return float(px[hi - 1]) if hi > lo else None
+        return tape_price(ts, px, at_ts=int(t0 + max(delay_s, min_window_s)), after_ts=t0 + 1)
 
     return f
+
+
+def signal_key(tr: Mapping[str, Any]) -> str:
+    """Same identity the live loop uses (trade_key); a tx hash alone is not unique."""
+    tk = tr.get("trade_key")
+    if isinstance(tk, str) and tk:
+        return tk
+    return f"{tr['wallet']}|{tr['market']}:{int(tr['outcome'])}|{int(tr['ts'])}|{tr['shares']}"
+
+
+def prepare_signals(
+    trades: pd.DataFrame,
+    frozen_by_epoch: Sequence[tuple[int, int, tuple[str, ...]]],
+    cfg: Config,
+) -> list[dict[Any, Any]]:
+    """Signal rows (BUYs by each epoch's frozen set, inside the entry band) in the exact
+    order every engine processes them: the single source for replay and fastsim."""
+    band = cfg.filters
+    out: list[dict[Any, Any]] = []
+    for start, end, wallets in frozen_by_epoch:
+        if not wallets:
+            continue
+        sel = trades.loc[
+            (trades["ts"] >= start)
+            & (trades["ts"] < end)
+            & trades["wallet"].isin(wallets)
+            & (trades["side"] == "BUY")
+        ]
+        sel = sel.sort_values(["ts", "wallet", "market"], kind="mergesort")
+        rows: list[dict[Any, Any]] = sel.to_dict("records")
+        out.extend(
+            r for r in rows if band.min_entry_price <= float(r["price"]) <= band.max_entry_price
+        )
+    return out
 
 
 @dataclass
@@ -126,7 +168,6 @@ def replay(
         store, cfg, evidence_mode=evidence_mode, config_hash=config_hash, clock=lambda: now["t"]
     )
     L = cfg.execution.latency_L_s  # noqa: N806
-    f = cfg.filters
     market_key: dict[str, Any] = {}  # condition_id string -> original market id
     mk = markets.set_index("market")
     win = mk["winning_outcome"]
@@ -151,42 +192,32 @@ def replay(
                 cid, {t: 1.0 if i == w else 0.0 for t, i in toks.items()}, "resolved", r
             )
 
-    for start, end, wallets in frozen_by_epoch:
-        if not wallets:
+    for tr in prepare_signals(trades, frozen_by_epoch, cfg):
+        tok = token_id(tr["market"], tr["outcome"])
+        market_key[str(tr["market"])] = tr["market"]
+        t0 = int(tr["ts"])
+        d = L * latency_multiplier
+        settle_due(t0 + d)  # frees capacity exactly as it would have in real time
+        now["t"] = t0 + d
+        s = Signal(
+            strategy="wallet_copy",
+            condition_id=str(tr["market"]),
+            token_id=tok,
+            ts=t0,
+            wallet=str(tr["wallet"]),
+            wallet_price=float(tr["price"]),
+            wallet_trade_key=signal_key(tr),
+        )
+        ref = price_at(tr, d)
+        if ref is None or not 0.0 < ref < 1.0:
+            ex.skip(s, "no_reference_price")
             continue
-        sel = trades.loc[
-            (trades["ts"] >= start)
-            & (trades["ts"] < end)
-            & trades["wallet"].isin(wallets)
-            & (trades["side"] == "BUY")
-        ]
-        sel = sel.sort_values(["ts", "wallet", "market"], kind="mergesort")
-        rows: list[dict[Any, Any]] = sel.to_dict("records")
-        for tr in rows:
-            if not f.min_entry_price <= float(tr["price"]) <= f.max_entry_price:
-                continue
-            tok = token_id(tr["market"], tr["outcome"])
-            market_key[str(tr["market"])] = tr["market"]
-            t0 = int(tr["ts"])
-            d = L * latency_multiplier
-            settle_due(t0 + d)  # frees capacity exactly as it would have in real time
-            now["t"] = t0 + d
-            key = str(tr.get("tx_hash") or f"{tr['wallet']}|{tok}|{t0}|{tr['shares']}")
-            s = Signal(
-                strategy="wallet_copy",
-                condition_id=str(tr["market"]),
-                token_id=tok,
-                ts=t0,
-                wallet=str(tr["wallet"]),
-                wallet_price=float(tr["price"]),
-                wallet_trade_key=key,
-            )
-            book = _book(tok, int(t0 + d), price_at(tr, d), cfg, spread_multiplier)
-            shadows = {
-                m: _book(tok, int(t0 + m * L), price_at(tr, m * L), cfg, spread_multiplier)
-                for m in cfg.execution.shadow_multipliers
-            }
-            ex.handle(s, book, shadows, fee_multiplier=fee_multiplier)
+        book = _book(tok, int(t0 + d), ref, cfg, spread_multiplier)
+        shadows = {
+            m: _book(tok, int(t0 + m * L), price_at(tr, m * L), cfg, spread_multiplier)
+            for m in cfg.execution.shadow_multipliers
+        }
+        ex.handle(s, book, shadows, fee_multiplier=fee_multiplier)
 
     settle_due(float("inf"))  # everything with a known outcome; the rest stays open
     fills, sigs, sets = store.fills_frame(), store.signals_frame(), store.settlements_frame()
@@ -199,15 +230,15 @@ def summarize(
 ) -> dict[str, Any]:
     entries = sigs.loc[sigs["status"].isin(["filled", "skipped"])]
     skips = Counter(sigs.loc[sigs["status"] == "skipped", "skip_reason"].astype(str))
-    risk = entries["skip_reason"].fillna("").str.startswith("risk:")
-    reached_book = entries.loc[~risk]  # capacity skips are a sizing choice, not unfillable
+    reasons = [None if r != r else r for r in entries["skip_reason"].tolist()]  # NaN -> None
+    risk = entries["skip_reason"].fillna("").str.startswith(CAPACITY_PREFIX)
+    reached = entries.loc[[reached_book(r) for r in reasons]]  # see NOT_REACHED_PREFIXES
     out: dict[str, Any] = {
         "signals": len(entries),
         "filled": int((sigs["status"] == "filled").sum()),
         "capacity_skipped": int(risk.sum()),
-        "fill_rate": (
-            float((reached_book["status"] == "filled").mean()) if len(reached_book) else None
-        ),
+        "not_reached": len(entries) - len(reached),
+        "fill_rate": float((reached["status"] == "filled").mean()) if len(reached) else None,
         "skip_reasons": dict(sorted(skips.items())),
         "settled": len(sets),
     }

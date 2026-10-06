@@ -24,7 +24,9 @@ from polybot.config import Config
 from polybot.execution.book import depth_within, walk_book
 from polybot.execution.fees import fee_coeff, fill_fee
 from polybot.execution.latency import synthetic_asks
-from polybot.execution.replay import PriceAt, token_id
+from polybot.execution.replay import PriceAt, prepare_signals, signal_key
+
+__all__ = ["FastResult", "fast_copy", "prepare_signals"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class FastResult:
     signals: int
     filled: int
     capacity_skipped: int
+    not_reached: int  # capacity skips + signals with no reference price
     fill_rate: float | None
     settled: int
     pnl: float
@@ -40,29 +43,6 @@ class FastResult:
     @property
     def roi(self) -> float | None:
         return self.pnl / self.cost if self.cost > 0 else None
-
-
-def prepare_signals(
-    trades: pd.DataFrame,
-    frozen_by_epoch: Sequence[tuple[int, int, tuple[str, ...]]],
-    cfg: Config,
-) -> list[dict[Any, Any]]:
-    """Signal rows in exactly the order ``replay`` processes them."""
-    f = cfg.filters
-    out: list[dict[Any, Any]] = []
-    for start, end, wallets in frozen_by_epoch:
-        if not wallets:
-            continue
-        sel = trades.loc[
-            (trades["ts"] >= start)
-            & (trades["ts"] < end)
-            & trades["wallet"].isin(wallets)
-            & (trades["side"] == "BUY")
-        ]
-        sel = sel.sort_values(["ts", "wallet", "market"], kind="mergesort")
-        rows: list[dict[Any, Any]] = sel.to_dict("records")
-        out.extend(r for r in rows if f.min_entry_price <= float(r["price"]) <= f.max_entry_price)
-    return out
 
 
 def fast_copy(
@@ -93,7 +73,7 @@ def fast_copy(
     n_open = 0
     heap: list[tuple[int, str, Any]] = []
     seen: set[str] = set()
-    signals = filled = capacity = settled = 0
+    signals = filled = capacity = settled = no_ref = 0
     pnl = cost_settled = 0.0
 
     def settle_due(upto: float) -> None:
@@ -113,12 +93,15 @@ def fast_copy(
     for tr in rows:
         t0 = int(tr["ts"])
         settle_due(t0 + d)
-        tok = token_id(tr["market"], tr["outcome"])
-        key = str(tr.get("tx_hash") or f"{tr['wallet']}|{tok}|{t0}|{tr['shares']}")
+        key = signal_key(tr)
         if key in seen:
             continue  # duplicate: not counted, exactly like the executor
         seen.add(key)
         signals += 1
+        ref = price_at(tr, d)
+        if ref is None or not 0.0 < ref < 1.0:
+            no_ref += 1  # same order as replay: checked before the risk limits
+            continue
         m = tr["market"]
         mexp = sum(c for _, _, c, _ in open_pos.get(m, []))
         if (
@@ -128,9 +111,6 @@ def fast_copy(
             or cash < stake * 1.1
         ):
             capacity += 1
-            continue
-        ref = price_at(tr, d)
-        if ref is None or not 0.0 < ref < 1.0:
             continue
         asks = synthetic_asks(
             ref,
@@ -168,7 +148,14 @@ def fast_copy(
                 heapq.heappush(heap, (int(r), str(m), m))
         open_pos[m].append((int(tr["outcome"]), fr.shares, fr.cost, fee))
     settle_due(float("inf"))
-    reached = signals - capacity
+    reached = signals - capacity - no_ref
     return FastResult(
-        signals, filled, capacity, filled / reached if reached else None, settled, pnl, cost_settled
+        signals,
+        filled,
+        capacity,
+        capacity + no_ref,
+        filled / reached if reached else None,
+        settled,
+        pnl,
+        cost_settled,
     )

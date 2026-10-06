@@ -38,8 +38,7 @@ from polybot.data.client import ApiError, PolymarketClient
 from polybot.data.ingest import Ingestor
 from polybot.data.store import Store
 from polybot.execution.paper import PaperExecutor, Signal, payouts_for_market
-from polybot.gates.ladder import kill_switches
-from polybot.report.build import live_evidence
+from polybot.report.build import live_evidence, live_kill_switches
 from polybot.selection.walkforward import DataView, Epoch, leakage_selfcheck, select_wallets
 from polybot.strategies.base import MarketEvent
 from polybot.strategies.wallet_copy import WalletCopy
@@ -180,7 +179,8 @@ class ForwardLoop:
         pending = [Pending.from_json(p) for p in cur.get("pending", [])]
         try:
             self.ingest.forward_poll_once()
-        except ApiError as exc:
+        except (ApiError, schemas.SchemaDriftError) as exc:
+            # a bad poll must not stall pending shadows, settlement, kill checks or heartbeat
             self.stats["errors"] += 1
             self.store.log_anomaly("poll_error", str(exc))
         new = self.store.trades_after_rowid(int(cur["rowid"]))
@@ -262,7 +262,7 @@ class ForwardLoop:
             return 0
         try:
             self.ingest.fetch_markets(open_c)
-        except ApiError as exc:
+        except (ApiError, schemas.SchemaDriftError) as exc:
             self.store.log_anomaly("settle_fetch_error", str(exc))
             return 0
         n = 0
@@ -301,7 +301,9 @@ class ForwardLoop:
 
     def check_kill_switches(self, now: float) -> list[str]:
         ev, _ = live_evidence(self.store, self.cfg, int(now), with_placebo=False)
-        hit = [k.name for k in kill_switches(ev, self.cfg) if k.triggered]
+        hit = [
+            k.name for k in live_kill_switches(self.store, self.cfg, ev, int(now)) if k.triggered
+        ]
         if hit and self.store.get_halt() is None:
             self.store.set_halt(",".join(hit))
             log.warning("KILL SWITCH: %s. Halted; review then `polybot resume --note ...`", hit)

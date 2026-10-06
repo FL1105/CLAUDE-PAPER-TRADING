@@ -445,6 +445,11 @@ class Store:
         """Manual review only (CLI). The clearing note is kept in the anomaly log."""
         with self.tx() as c:
             c.execute("DELETE FROM meta WHERE key='halted'")
+            c.execute(
+                "INSERT INTO meta(key, value) VALUES ('halt_cleared_ts', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(int(time.time())),),
+            )
         self.log_anomaly("kill_switch_cleared", note)
 
     # --- bookkeeping -----------------------------------------------------------
@@ -507,16 +512,32 @@ class Store:
         return int(self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
     # --- analysis frames (the walk-forward input format) -------------------------
-    def trades_frame(self) -> pd.DataFrame:
-        """Trades in the analysis format: wallet, market, outcome, side, price, shares, ts."""
-        df = pd.read_sql_query(
-            """SELECT wallet, condition_id AS market, outcome_index AS outcome, side, price,
-                      size_shares AS shares, ts, tx_hash, token_id
-               FROM trades WHERE condition_id IS NOT NULL AND outcome_index IS NOT NULL
+    def trades_frame(
+        self, *, wallets: Iterable[str] | None = None, since_ts: int | None = None
+    ) -> pd.DataFrame:
+        """Trades in the analysis format: wallet, market, outcome, side, price, shares, ts,
+        tx_hash, token_id, trade_key. ``wallets`` / ``since_ts`` narrow the load (the live
+        loop's kill-switch checks only need the frozen wallets' recent trades)."""
+        where = ["condition_id IS NOT NULL", "outcome_index IS NOT NULL"]
+        params: list[Any] = []
+        if since_ts is not None:
+            where.append("ts >= ?")
+            params.append(int(since_ts))
+        if wallets is not None:
+            ws = sorted(set(wallets))
+            if not ws:
+                where.append("0")
+            else:
+                where.append(f"wallet IN ({', '.join('?' * len(ws))})")
+                params.extend(ws)
+        return pd.read_sql_query(
+            f"""SELECT wallet, condition_id AS market, outcome_index AS outcome, side, price,
+                      size_shares AS shares, ts, tx_hash, token_id, trade_key
+               FROM trades WHERE {" AND ".join(where)}
                ORDER BY ts, trade_key""",
             self.conn,
+            params=params,
         )
-        return df
 
     def markets_frame(self) -> pd.DataFrame:
         """Markets: market, status, winning_outcome (NaN unless resolved), resolved_ts, end_ts."""

@@ -79,6 +79,10 @@ execution:
   sim_half_spread: 0.01
   sim_levels: 5
   sim_level_depth_usdc: 250.0
+  # Real-data backtests: the fill reference is the last real trade after the wallet's
+  # own trade within max(delay, tape_min_window_s). A later price is conservative on
+  # average (informed buying moves price against the copier). See DECISIONS D36.
+  tape_min_window_s: 60
 
 fees:
   # DEFAULT ASSUMPTION (UNVERIFIED, see docs/ASSUMPTIONS.md):
@@ -131,6 +135,8 @@ kill_switches:
   rolling_window_trades: 50
   rolling_roi_percentile: 1.0
   slippage_ratio: 2.0
+  modeled_slippage: 0.01            # what the backtest assumed (synthetic half-spread); update
+                                    # from `polybot backtest` median slippage before going live
   slippage_consecutive_days: 3
   negative_oos_z_consecutive_epochs: 2
 

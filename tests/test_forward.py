@@ -213,3 +213,70 @@ def test_run_loop_and_errors_are_counted(env) -> None:  # type: ignore[no-untype
     loop.run(max_iterations=2, sleep=lambda s: None)
     assert loop.stats["errors"] == 2
     assert loop.store.anomaly_counts()["loop_error"] == 2
+
+
+# --- regression tests for review findings -------------------------------------------
+
+
+def test_drift_does_not_rehalt_after_resume(env, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import polybot.data.store as store_mod
+
+    _, clock, loop, _, _, _ = env
+    monkeypatch.setattr(store_mod.time, "time", clock)  # the DB stamps rows with the test clock
+    loop.store.log_drift("data/trades", "one malformed row")
+    assert "data_integrity" in loop.check_kill_switches(clock())
+    assert loop.store.get_halt() is not None
+    clock.t += 10
+    loop.store.clear_halt("reviewed: single malformed feed row")
+    clock.t += 10
+    # the old drift row is before the clearance: no immediate re-halt
+    assert "data_integrity" not in loop.check_kill_switches(clock())
+    assert loop.store.get_halt() is None
+
+
+def test_slippage_kill_switch_fires_from_live_fills(env) -> None:  # type: ignore[no-untyped-def]
+    api, clock, loop, _, _, _ = env
+    for d in range(3):  # three days of fills at 0.53 vs wallet 0.50 = 3c slippage (> 2 x 1c)
+        api.book_calls = 2  # book quote at 0.53
+        tx = f"0xs{d}"
+        api.trade(W, "BUY", 0.50, int(clock.t) - 1, tx)
+        base = clock.t
+        for dt in (0, 2, 4, 10):
+            clock.t = base + dt
+            loop.step()
+        clock.t = base + 86_400
+    fills = loop.store.fills_frame()
+    assert len(fills) == 3 and (fills.slippage > 0.02).all()
+    assert "slippage" in loop.check_kill_switches(clock())
+
+
+def test_bad_poll_payload_does_not_stall_the_loop(env) -> None:  # type: ignore[no-untyped-def]
+    api, clock, loop, _, _, _ = env
+    api.trade(W, "BUY", 0.50, T0 - 1, "0xa")
+    loop.step()  # pending signal with its detection book
+    original = api.__call__
+
+    def broken(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/trades":
+            return httpx.Response(200, json={"error": "maintenance"})
+        return original(req)
+
+    loop.client.http._http._transport = httpx.MockTransport(broken)
+    for dt in (2, 4, 10):
+        clock.t = T0 + dt
+        loop.step()  # must not raise; shadows still captured, fill written
+    assert len(loop.store.fills_frame()) == 1
+    assert loop.store.anomaly_counts().get("poll_error", 0) >= 1
+
+
+def test_stale_signals_do_not_count_against_fill_rate(env) -> None:  # type: ignore[no-untyped-def]
+    from polybot.report.build import live_evidence
+
+    api, clock, loop, _, c, _ = env
+    api.trade(W, "BUY", 0.50, T0 - 1000, "0xold")  # stale (PC was asleep)
+    api.trade(W, "BUY", 0.50, T0 - 1, "0xnew")
+    for dt in (0, 2, 4, 10):
+        clock.t = T0 + dt
+        loop.step()
+    ev, _ = live_evidence(loop.store, c, int(clock.t), with_placebo=False)
+    assert ev.signals_reached_book == 1 and ev.signals_filled == 1  # 100%, not 50%

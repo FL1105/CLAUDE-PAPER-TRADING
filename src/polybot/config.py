@@ -109,6 +109,7 @@ class ExecutionConfig(_Frozen):
     sim_half_spread: float = Field(ge=0)
     sim_levels: int = Field(ge=1)
     sim_level_depth_usdc: float = Field(gt=0)
+    tape_min_window_s: float = Field(ge=0)
 
     @field_validator("shadow_multipliers")
     @classmethod
@@ -171,6 +172,7 @@ class KillSwitchConfig(_Frozen):
     rolling_window_trades: int = Field(ge=1)
     rolling_roi_percentile: float = Field(gt=0, lt=100)
     slippage_ratio: float = Field(gt=0)
+    modeled_slippage: float = Field(gt=0)
     slippage_consecutive_days: int = Field(ge=1)
     negative_oos_z_consecutive_epochs: int = Field(ge=1)
 

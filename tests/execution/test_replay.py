@@ -91,7 +91,8 @@ def test_no_reference_price_is_skipped_not_guessed(cfg: Config) -> None:
         evidence_mode="backtest",
         config_hash="h",
     )
-    assert r.summary["skip_reasons"] == {"empty_book": 1}
+    assert r.summary["skip_reasons"] == {"no_reference_price": 1}
+    assert r.summary["not_reached"] == 1 and r.summary["fill_rate"] is None  # not "unfillable"
 
 
 def test_tape_price_fn_only_uses_post_signal_tape() -> None:
@@ -105,7 +106,8 @@ def test_tape_price_fn_only_uses_post_signal_tape() -> None:
     )
     f = tape_price_fn(t)
     row = {"market": 1, "outcome": 0, "ts": 101}
-    assert f(row, 2) == 0.45  # the signal's own trade (same ts) is the latest at t+2
+    # the wallet's own trade (ts 101, 0.45) is never the reference: whale's price excluded
+    assert f(row, 2) is None
     assert f(row, 10) == 0.60
     assert f({"market": 1, "outcome": 0, "ts": 200}, 2) is None
 
@@ -159,3 +161,28 @@ def test_skilled_high_latency_is_not_fillable(strong) -> None:  # type: ignore[n
         config_hash="h",
     )
     assert r.summary["fill_rate"] < 0.5  # chase rule: edge priced in before we can fill
+
+
+def test_same_tx_hash_different_fills_are_both_copied(cfg: Config) -> None:
+    """Review finding: tx hash alone is not unique; the live loop keys on trade_key."""
+    t = trades([("w", 1, 0, "BUY", 0.5, 10, 100), ("w2", 2, 0, "BUY", 0.5, 10, 100)])
+    t["tx_hash"] = "0xsame"
+    t["trade_key"] = ["k1", "k2"]
+    r = replay(
+        t,
+        MK,
+        [(0, 1000, ("w", "w2"))],
+        cfg,
+        lambda tr, d: 0.5,
+        evidence_mode="backtest",
+        config_hash="h",
+    )
+    assert r.summary["filled"] == 2
+
+
+def test_tape_min_window_finds_a_later_trade_but_never_the_own_trade() -> None:
+    t = trades([("a", 1, 0, "BUY", 0.40, 10, 100), ("b", 1, 0, "BUY", 0.47, 10, 140)])
+    row = {"market": 1, "outcome": 0, "ts": 100}
+    assert tape_price_fn(t)(row, 2) is None  # nothing in (100, 102]
+    assert tape_price_fn(t, 60)(row, 2) == 0.47  # next real trade within 60 s
+    assert tape_price_fn(t, 30)(row, 2) is None  # 140 is outside (100, 130]
