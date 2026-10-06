@@ -69,3 +69,61 @@ def test_html_embeds_data(tmp_path: Path) -> None:
     write_html({"generated_ts": 0, "bankroll": 1000, "candidates": [], "note": "</script>"}, out)
     text = out.read_text(encoding="utf-8")
     assert "polybot fleet" in text and text.count("</script>") == 2
+
+
+def test_run_fleet_isolates_failures_and_publishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    import httpx
+
+    from polybot import fleet
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.forward import ForwardLoop
+
+    cands = load_candidates(ROOT / "config" / "candidates", ROOT, tmp_path)
+    for c in cands:
+        seed_database(c, tmp_path / "missing.sqlite")  # creates the dirs only
+    http = HttpClient(
+        cands[0].cfg.api,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[])),
+        sleep=lambda s: None,
+    )
+    real_step = ForwardLoop.step
+
+    def flaky(self: ForwardLoop) -> None:
+        if self.cfg.stats.fdr_q == 0.05:  # strict_fdr blows up every iteration
+            raise RuntimeError("boom")
+        real_step(self)
+
+    monkeypatch.setattr(ForwardLoop, "step", flaky)
+    monkeypatch.setattr(fleet.time, "sleep", lambda s: None)
+    fleet.run_fleet(cands, PolymarketClient(http), max_iterations=2)
+
+    data = json.loads((tmp_path / "fleet.json").read_text(encoding="utf-8"))
+    names = {r["name"] for r in data["candidates"]}
+    assert names == {c.name for c in cands}
+    for r in data["candidates"]:
+        assert r["fleet_adjusted"]["n_candidates"] == len(cands)
+        assert r["progress"]["trades_needed"] > 0
+
+
+def test_edited_candidate_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from polybot import fleet
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.data.store import Store
+
+    cands = load_candidates(ROOT / "config" / "candidates", ROOT, tmp_path)[:1]
+    seed_database(cands[0], tmp_path / "missing.sqlite")
+    with Store(cands[0].db_path) as st:
+        st.set_meta("forward_config_hash", "0" * 64)  # as if the YAML changed since the start
+    http = HttpClient(
+        cands[0].cfg.api,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[])),
+        sleep=lambda s: None,
+    )
+    with pytest.raises(ValueError, match="edited after"):
+        fleet.run_fleet(cands, PolymarketClient(http), max_iterations=1)

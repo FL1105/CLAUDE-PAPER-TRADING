@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>polybot fleet</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><title>polybot fleet</title>
 <style>
 :root{--bg:#fafafa;--fg:#1a1a1a;--mut:#666;--card:#fff;--bd:#ddd;--ok:#1a7f4b;--bad:#b3261e}
 @media(prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#999;--card:#1b1b1b;--bd:#333;--ok:#4cc38a;--bad:#ff6b63}}
@@ -48,8 +48,12 @@ let ext=1;C.forEach(c=>{const r=c.income_30d;if(r.lo!=null)ext=Math.max(ext,Math
 const bar=r=>{if(r.lo==null)return '<span class="mut">not enough trades</span>';
  const P=v=>50+v/ext*50,l=P(r.lo),h=P(r.hi),col=r.lo>0?'var(--ok)':(r.hi<0?'var(--bad)':'var(--mut)');
  return `<div class="bar"><i style="left:${l}%;width:${Math.max(1,h-l)}%;background:${col}"></i><b style="left:${P(r.mid)}%"></b></div><div class="mut">$${r.lo.toFixed(0)} to $${r.hi.toFixed(0)}</div>`};
-document.getElementById('tbl').innerHTML='<tr><th>Candidate</th><th>Tier</th><th class="n">Days</th><th class="n">Settled</th><th class="n">PnL</th><th class="n">Max DD</th><th>30-day range</th><th>Blocking gates</th></tr>'+
- C.map((c,i)=>`<tr><td><span class="sw" style="background:${COL[i%6]}"></span>${c.name}${c.halted?' <b style="color:var(--bad)">HALTED</b>':''}</td><td>${c.tier||'none yet'}</td><td class="n">${c.days}</td><td class="n">${c.summary.settled_trades}</td><td class="n">${c.summary.pnl.toFixed(2)}</td><td class="n">${c.summary.max_drawdown==null?'-':(c.summary.max_drawdown*100).toFixed(1)+'%'}</td><td>${bar(c.income_30d)}</td><td class="mut">${c.blocking.join(', ')||'-'}</td></tr>`).join('');
+const prog=c=>{const p=c.progress||{};const stale=p.heartbeat_age_s!=null&&p.heartbeat_age_s>900?'<div style="color:var(--bad)">STALE: no heartbeat for '+Math.round(p.heartbeat_age_s/60)+' min</div>':'';
+ return `<div>${p.trades}/${p.trades_needed} trades</div><div>${c.days}/${p.days_needed} days</div><div class="mut">${p.eta_days==null?'ETA unknown':'ETA ~'+p.eta_days+' d'}</div>${stale}`};
+const adj=c=>{const a=c.fleet_adjusted||{};if(a.roi==null)return '<span class="mut">no data</span>';
+ return `<div style="color:${a.passes?'var(--ok)':'var(--mut)'}">${a.passes?'passes':'not yet'}</div><div class="mut">ROI ${(a.roi*100).toFixed(1)}%, lower ${(a.ci_lower*100).toFixed(1)}% @ ${(a.level*100).toFixed(2)}% (${a.n_candidates} candidates)</div>`};
+document.getElementById('tbl').innerHTML='<tr><th>Candidate</th><th>Tier</th><th class="n">Days</th><th class="n">Settled</th><th class="n">PnL</th><th class="n">Max DD</th><th>30-day range</th><th>Progress</th><th>Fleet-adjusted edge</th><th>Blocking gates</th></tr>'+
+ C.map((c,i)=>`<tr><td><span class="sw" style="background:${COL[i%6]}"></span>${c.name}${c.halted?' <b style="color:var(--bad)">HALTED</b>':''}</td><td>${c.tier||'none yet'}</td><td class="n">${c.days}</td><td class="n">${c.summary.settled_trades}</td><td class="n">${c.summary.pnl.toFixed(2)}</td><td class="n">${c.summary.max_drawdown==null?'-':(c.summary.max_drawdown*100).toFixed(1)+'%'}</td><td>${bar(c.income_30d)}</td><td>${prog(c)}</td><td>${adj(c)}</td><td class="mut">${c.blocking.join(', ')||'-'}</td></tr>`).join('');
 </script></body></html>"""
 
 

@@ -118,7 +118,45 @@ def income_range(
     return {"lo": float(lo), "mid": float(mid), "hi": float(hi), "n": len(pnls)}
 
 
-def summarize(cand: Candidate, store: Store, now: int | None = None) -> dict[str, Any]:
+def fleet_adjusted_edge(
+    store: Store, cfg: Config, n_candidates: int
+) -> dict[str, float | bool | int | None]:
+    """Gate-3 style net-edge bound at a Bonferroni-widened level.
+
+    Running N candidates and promoting the best is itself a selection step: at a 95%
+    one-sided level the chance that at least one of N null candidates passes is ~1-0.95^N.
+    Widening the level to ``1 - (1 - ci) / N`` restores the per-gate error rate.
+    """
+    from polybot.stats.bootstrap import cluster_bootstrap_roi
+
+    f, st = store.fills_frame(), store.settlements_frame()
+    base = {"n_candidates": n_candidates, "roi": None, "ci_lower": None, "passes": False}
+    if f.empty or st.empty:
+        return base
+    m = f.merge(st[["fill_id", "net_pnl"]], on="fill_id")
+    if m.empty or float(m["stake_usdc"].sum()) <= 0:
+        return base
+    level = 1.0 - (1.0 - cfg.gates.bootstrap_ci_level) / max(1, n_candidates)
+    b = cluster_bootstrap_roi(
+        m["net_pnl"],
+        m["stake_usdc"],
+        m["condition_id"].astype(str),
+        n_resamples=cfg.stats.bootstrap_resamples,
+        seed=cfg.seed,
+        ci_level=level,
+    )
+    return {
+        "n_candidates": n_candidates,
+        "level": round(level, 4),
+        "roi": float(b.roi),
+        "ci_lower": float(b.lower),
+        "passes": bool(b.roi > 0 and b.lower > 0),
+    }
+
+
+def summarize(
+    cand: Candidate, store: Store, now: int | None = None, n_candidates: int = 1
+) -> dict[str, Any]:
     from polybot.report.build import write_outputs
 
     rep = write_outputs(store, cand.cfg, cand.out_dir, now=now)
@@ -128,6 +166,14 @@ def summarize(cand: Candidate, store: Store, now: int | None = None) -> dict[str
     t = float(now if now is not None else time.time())
     days = max(0.0, (t - float(start)) / 86400.0) if start else 0.0
     lad = rep["ladder"]
+    g = cand.cfg.gates
+    n_settled = len(pnls)
+    rate = n_settled / days if days > 0 else 0.0
+    need_trades = max(0, g.min_settled_trades - n_settled)
+    eta_trades = need_trades / rate if rate > 0 else (0.0 if need_trades == 0 else None)
+    eta_days = None if eta_trades is None else max(eta_trades, max(0.0, g.min_forward_days - days))
+    beat = cand.out_dir / "heartbeat.json"
+    hb_age = (t - beat.stat().st_mtime) if beat.exists() else None
     return {
         "name": cand.name,
         "config_hash": config_hash(cand.cfg),
@@ -137,7 +183,15 @@ def summarize(cand: Candidate, store: Store, now: int | None = None) -> dict[str
         "halted": rep["halted"],
         "days": round(days, 2),
         "summary": rep["summary"],
+        "progress": {
+            "trades": n_settled,
+            "trades_needed": g.min_settled_trades,
+            "days_needed": g.min_forward_days,
+            "eta_days": None if eta_days is None else round(eta_days, 1),
+            "heartbeat_age_s": None if hb_age is None else round(hb_age),
+        },
         "income_30d": income_range(pnls, days),
+        "fleet_adjusted": fleet_adjusted_edge(store, cand.cfg, n_candidates),
         "equity": rep["equity"],
     }
 
@@ -165,7 +219,7 @@ def write_fleet(cands: list[Candidate], now: int | None = None) -> dict[str, Any
     for c in cands:
         if c.db_path.exists():
             with Store(c.db_path) as st:
-                rows.append(summarize(c, st, now))
+                rows.append(summarize(c, st, now, len(cands)))
     return _publish(cands, rows, now)
 
 
@@ -183,7 +237,13 @@ def run_fleet(
     stores = [Store(c.db_path) for c in cands]
     loops = [ForwardLoop(c.cfg, s, client, c.out_dir) for c, s in zip(cands, stores, strict=True)]
     try:
-        for lp in loops:
+        for c, lp in zip(cands, loops, strict=True):
+            started = lp.store.get_meta("forward_config_hash")
+            if started is not None and started != lp.hash:
+                raise ValueError(
+                    f"candidate {c.name!r} was edited after its forward run began "
+                    "(config hash changed). Give the new config a new name (new database)."
+                )
             lp.begin()
         last_report = 0.0
         n = 0
@@ -197,7 +257,11 @@ def run_fleet(
                     lp.store.log_anomaly("loop_error", repr(exc))
                 lp.stats["iterations"] += 1
             if time.time() - last_report >= report_every_s:
-                _publish(cands, [summarize(c, s) for c, s in zip(cands, stores, strict=True)], None)
+                _publish(
+                    cands,
+                    [summarize(c, s, None, len(cands)) for c, s in zip(cands, stores, strict=True)],
+                    None,
+                )
                 last_report = time.time()
             n += 1
             if max_iterations is not None and n >= max_iterations:
@@ -205,7 +269,11 @@ def run_fleet(
             time.sleep(
                 max(0.0, min(c.cfg.paper.poll_interval_s for c in cands) - (time.time() - t0))
             )
-        _publish(cands, [summarize(c, s) for c, s in zip(cands, stores, strict=True)], None)
+        _publish(
+            cands,
+            [summarize(c, s, None, len(cands)) for c, s in zip(cands, stores, strict=True)],
+            None,
+        )
     finally:
         for s in stores:
             s.close()
