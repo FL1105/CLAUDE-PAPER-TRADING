@@ -639,3 +639,42 @@ def maker_sim(
 
     rep = simulate(db, MakerParams(quote_usd, max_inventory_usd, min_spread))
     typer.echo(json.dumps(rep.summary(), indent=1))
+
+
+btc5_app = typer.Typer(
+    help="BTC 5-minute Up/Down: record real asks near expiry and test a favourite-buy."
+)
+app.add_typer(btc5_app, name="btc5")
+BTC5_DB = ROOT / "out" / "btc5" / "btc5.sqlite"
+
+
+@btc5_app.command("record")
+def btc5_record(
+    minutes: float = typer.Option(60.0, "--minutes"),
+    interval: float = typer.Option(2.0, "--interval"),
+    db: Path = typer.Option(BTC5_DB, "--db"),
+) -> None:
+    """Snapshot the Up token's top of book every few seconds for each 5-minute window."""
+    from polybot.btc5 import record
+    from polybot.data.client import HttpClient, PolymarketClient
+
+    cfg = load_config(None)
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        typer.echo(
+            json.dumps(
+                record(PolymarketClient(http), db, duration_s=minutes * 60, interval_s=interval)
+            )
+        )
+
+
+@btc5_app.command("analyze")
+def btc5_analyze(
+    db: Path = typer.Option(BTC5_DB, "--db"),
+    lag: float = typer.Option(2.0, "--lag", help="seconds of latency before the order lands"),
+) -> None:
+    """Net ROI of buying the favourite at the real ask N seconds before expiry."""
+    from polybot.btc5 import analyze
+
+    for off in (120.0, 60.0, 30.0, 15.0, 8.0):
+        r = analyze(db, offset_s=off, lag_s=lag)
+        typer.echo(json.dumps({"seconds_before_end": off, **r}))
