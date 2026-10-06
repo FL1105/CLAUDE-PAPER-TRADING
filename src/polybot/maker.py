@@ -55,22 +55,32 @@ def open_db(path: Path) -> sqlite3.Connection:
 # --- recording -------------------------------------------------------------------------
 
 
-def liquid_tokens(client: PolymarketClient, n: int) -> list[tuple[str, str]]:
-    """(condition_id, token_id) for the n highest-24h-volume open binary markets (YES tokens)."""
+def liquid_tokens(
+    client: PolymarketClient, n: int, *, min_spread: float = 0.01, min_volume_24h: float = 20_000.0
+) -> list[tuple[str, str]]:
+    """(condition_id, token_id) of open binary markets worth quoting: wide enough and active.
+
+    Ranked by 24h volume x quoted spread (a proxy for spread income on offer), so the very
+    tightest, professionally-quoted books are skipped.
+    """
     raw = client.markets(
-        closed="false", active="true", order="volume24hr", ascending="false", limit=max(n * 3, 50)
+        closed="false", active="true", order="volume24hr", ascending="false", limit=300
     )
-    out: list[tuple[str, str]] = []
+    cands: list[tuple[float, str, str]] = []
     for r in raw if isinstance(raw, list) else []:
         try:
             m, toks = schemas.parse_gamma_market(r)
-        except schemas.SchemaDriftError:
+            spread = float(r.get("spread") or 0.0)
+            vol = float(r.get("volume24hr") or 0.0)
+        except (schemas.SchemaDriftError, TypeError, ValueError):
             continue
-        if len(toks) == 2 and m.resolution_status == schemas.ResolutionStatus.OPEN:
-            out.append((m.condition_id, toks[0].token_id))
-        if len(out) >= n:
-            break
-    return out
+        if len(toks) != 2 or m.resolution_status != schemas.ResolutionStatus.OPEN:
+            continue
+        if spread + 1e-9 < min_spread or vol < min_volume_24h:
+            continue
+        cands.append((vol * spread, m.condition_id, toks[0].token_id))
+    cands.sort(reverse=True)
+    return [(c, t) for _, c, t in cands[:n]]
 
 
 def record(

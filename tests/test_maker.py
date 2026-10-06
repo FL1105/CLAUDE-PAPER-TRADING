@@ -42,3 +42,26 @@ def test_inventory_cap_and_narrow_spread() -> None:
     assert r.inventory * 0.50 <= 50.0 + 1e-9
     narrow = [(0, 0.50, 100.0, 0.51, 100.0), (10, 0.50, 100.0, 0.51, 100.0)]
     assert simulate_token(narrow, [(5, 0.40, 9.0, "SELL")], P).fills_buy == 0
+
+
+def test_liquid_tokens_skips_tight_and_inactive_markets() -> None:
+    from polybot.maker import liquid_tokens
+
+    def mk(cid: str, spread: float, vol: float) -> dict:
+        return {
+            "conditionId": cid,
+            "question": "q?",
+            "endDate": "2027-01-01T00:00:00Z",
+            "closed": False,
+            "outcomes": '["Yes","No"]',
+            "outcomePrices": '["0.5","0.5"]',
+            "clobTokenIds": f'["{cid}Y","{cid}N"]',
+            "spread": spread,
+            "volume24hr": vol,
+        }
+
+    class Fake:
+        def markets(self, **kw: object) -> list[dict]:
+            return [mk("a", 0.001, 9e6), mk("b", 0.02, 1e5), mk("c", 0.04, 6e4), mk("d", 0.05, 100)]
+
+    assert liquid_tokens(Fake(), 5) == [("c", "cY"), ("b", "bY")]  # ranked by volume x spread

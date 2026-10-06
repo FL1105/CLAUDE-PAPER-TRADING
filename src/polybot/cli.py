@@ -610,6 +610,7 @@ def maker_record(
     minutes: float = typer.Option(30.0, "--minutes"),
     markets: int = typer.Option(15, "--markets", help="top-volume open markets to watch"),
     interval: float = typer.Option(6.0, "--interval", help="seconds between snapshots"),
+    min_spread: float = typer.Option(0.01, "--min-spread", help="skip markets quoted tighter"),
     db: Path = typer.Option(MAKER_DB, "--db"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
@@ -621,7 +622,7 @@ def maker_record(
     cfg = load_config(None)
     with HttpClient(cfg.api, seed=cfg.seed) as http:
         client = PolymarketClient(http)
-        wl = liquid_tokens(client, markets)
+        wl = liquid_tokens(client, markets, min_spread=min_spread)
         typer.echo(f"recording {len(wl)} markets for {minutes} min -> {db}")
         typer.echo(json.dumps(record(client, db, wl, duration_s=minutes * 60, interval_s=interval)))
 
