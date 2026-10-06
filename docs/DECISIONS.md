@@ -241,3 +241,12 @@ A high-effort review of `src/` found ten issues. All were fixed, each with a reg
 - **Duplicated logic.** `prepare_signals` (signal selection) and the tape lookup now
   each have a single implementation that replay and fastsim share; the equivalence
   test still passes.
+
+## D37. Market resolutions from the Hugging Face dataset
+`polybot history markets` reads `markets.parquet` instead of calling Gamma (279k markets
+would take hours at the API rate limit). Two assumptions: (1) the dataset stores the last
+quote in `outcome_prices` (e.g. `[0.9995, 0.0005]`), so prices >= 0.99 count as 1 and
+<= 0.01 as 0 before the strict resolver runs; anything else stays `ambiguous` and is
+excluded. (2) There is no close time, so `resolved_ts = max(end_date, last stored trade)`.
+That is never earlier than the true resolution for markets that end on schedule, so it adds
+no look-ahead; early-resolving markets are used slightly later than necessary.

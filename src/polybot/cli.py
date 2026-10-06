@@ -221,6 +221,28 @@ def history_import(
     typer.echo("Next: `polybot backfill --markets-only` to attach markets and resolutions.")
 
 
+@history_app.command("markets")
+def history_markets(
+    path: str = typer.Argument(
+        "hf://datasets/SII-WANGZJ/Polymarket_data/markets.parquet", help="markets.parquet"
+    ),
+    config: Path | None = ConfigOpt,
+) -> None:
+    """Attach markets + resolutions for stored trades from the dataset (no API calls)."""
+    from polybot.data.history import import_markets
+    from polybot.data.store import Store
+
+    cfg = load_config(config)
+    with Store(ROOT / cfg.storage.db_path) as st:
+        rows = st.conn.execute(
+            "SELECT condition_id, max(ts) FROM trades WHERE condition_id IS NOT NULL "
+            "GROUP BY condition_id"
+        ).fetchall()
+        stats = import_markets(st, path, [r[0] for r in rows], {r[0]: int(r[1]) for r in rows})
+        stats["wanted"] = len(rows)
+        typer.echo(json.dumps(stats, indent=1))
+
+
 def _frames(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
     from polybot.data.store import Store
 
