@@ -519,3 +519,60 @@ def gates(
 
 if __name__ == "__main__":
     app()
+
+
+fleet_app = typer.Typer(help="Run several candidate configs side by side (paper only).")
+app.add_typer(fleet_app, name="fleet")
+CandDirOpt = typer.Option(ROOT / "config" / "candidates", "--candidates", help="candidate YAML dir")
+FLEET_DIR = ROOT / "out" / "fleet"
+
+
+@fleet_app.command("init")
+def fleet_init(candidates: Path = CandDirOpt, config: Path | None = ConfigOpt) -> None:
+    """Create one database per candidate, seeded from the backfilled history."""
+    from polybot.fleet import load_candidates, seed_database
+
+    cfg = load_config(config)
+    for c in load_candidates(candidates, ROOT, FLEET_DIR):
+        seeded = seed_database(c, ROOT / cfg.storage.db_path)
+        typer.echo(
+            f"{c.name}: {'seeded from ' + cfg.storage.db_path if seeded else 'exists/skipped'}"
+        )
+
+
+@fleet_app.command("run")
+def fleet_run(
+    candidates: Path = CandDirOpt,
+    iterations: int | None = typer.Option(None, "--iterations"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Forward-paper every candidate in one process (Ctrl-C safe; restart any time)."""
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.fleet import load_candidates, run_fleet, seed_database
+
+    _setup_logging(verbose)
+    cands = load_candidates(candidates, ROOT, FLEET_DIR)
+    base = load_config(None)
+    for c in cands:
+        seed_database(c, ROOT / base.storage.db_path)
+    with HttpClient(base.api, seed=base.seed) as http:
+        run_fleet(cands, PolymarketClient(http), max_iterations=iterations)
+
+
+@fleet_app.command("report")
+def fleet_report(candidates: Path = CandDirOpt) -> None:
+    """Write out/fleet/fleet.json and out/fleet/fleet.html (open it in a browser)."""
+    from polybot.fleet import load_candidates, write_fleet
+    from polybot.fleet_view import write_html
+
+    cands = load_candidates(candidates, ROOT, FLEET_DIR)
+    data = write_fleet(cands)
+    write_html(data, FLEET_DIR / "fleet.html")
+    for r in data["candidates"]:
+        i = r["income_30d"]
+        rng = "n/a" if i["lo"] is None else f"{i['lo']:+.0f}..{i['hi']:+.0f}"
+        typer.echo(
+            f"{r['name']}: tier={r['tier']} trades={r['summary']['settled_trades']} "
+            f"pnl={r['summary']['pnl']:+.2f} 30d-range={rng}"
+        )
+    typer.echo(f"Wrote {FLEET_DIR / 'fleet.html'}")

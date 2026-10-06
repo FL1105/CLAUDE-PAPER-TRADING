@@ -1,0 +1,4 @@
+name: strict_fdr
+overrides:
+  stats:
+    fdr_q: 0.05            # fewer, higher-confidence wallets

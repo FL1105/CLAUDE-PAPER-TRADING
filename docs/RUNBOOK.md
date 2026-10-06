@@ -180,3 +180,21 @@ Most likely outcomes, in order: **no wallets selected** (thin evidence), **gates
 failing** (no copyable edge after costs), or rarely **Rare (S2)**. Every one of
 these is a valid answer. Rare means you may *consider* micro-live after the manual
 checklist. Nothing in this repo can trade real money.
+
+## Fleet: several candidates side by side
+
+Each file in `config/candidates/*.yaml` is a named partial override of
+`config/default.yaml`. `gates`, `kill_switches`, `micro_live`, `storage` and `api`
+cannot be overridden, so every candidate is judged by the same bar.
+
+```bash
+polybot backfill --days 90      # shared history (out/polybot.sqlite)
+polybot fleet init              # one DB per candidate, seeded from that history
+polybot fleet run               # forward-paper all candidates (leave running; restart-safe)
+polybot fleet report            # out/fleet/fleet.json + out/fleet/fleet.html
+```
+
+The page shows one equity line per candidate, tier, blocking gates and a 30-day
+income range (bootstrap of past settled trades; a description of evidence, not a
+forecast). Editing a candidate's YAML after it has started changes its config hash:
+use a new `name` (new DB) instead. Add a candidate by dropping in a new YAML file.
