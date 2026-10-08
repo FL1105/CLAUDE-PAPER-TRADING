@@ -678,3 +678,70 @@ def btc5_analyze(
     for off in (120.0, 60.0, 30.0, 15.0, 8.0):
         r = analyze(db, offset_s=off, lag_s=lag)
         typer.echo(json.dumps({"seconds_before_end": off, **r}))
+
+
+learn_app = typer.Typer(help="Easy mode: a simple paper bot that learns which rule (if any) works.")
+app.add_typer(learn_app, name="learn")
+LEARN_DB = ROOT / "out" / "btc5" / "btc5.sqlite"
+
+
+def _print_learn(db: Path) -> None:
+    from polybot.learner import MIN_TRADES, report
+
+    r = report(db)
+    typer.echo("")
+    typer.echo(
+        f"windows learned: {r['windows_learned']}   bot trades: {r['bot_trades']}   "
+        f"paper bankroll: {r['bot_bankroll'] if r['bot_bankroll'] else 1000.0:.2f}"
+    )
+    typer.echo(
+        f"{'rule@seconds-before-end':<26}{'windows':>8}{'win%':>7}"
+        f"{'net ret':>9}{'lower bd':>10}  proven"
+    )
+    for a in r["arms"]:
+        if not a["windows"]:
+            continue
+        typer.echo(
+            f"{a['arm']:<26}{a['windows']:>8}{100 * a['win_rate']:>6.0f}%"
+            f"{100 * a['mean_net_return']:>8.1f}%{100 * a['lower_bound']:>9.1f}%  "
+            f"{'YES' if a['proven'] else '-'}"
+        )
+    if r["proven_arms"]:
+        typer.echo("PROVEN (lower bound > 0 after correction): " + ", ".join(r["proven_arms"]))
+    else:
+        typer.echo(
+            f"No rule is proven yet (needs {MIN_TRADES}+ windows and a positive lower bound). "
+            "Sitting out is the correct move until one is."
+        )
+
+
+@learn_app.command("run")
+def learn_run(
+    minutes: float = typer.Option(60.0, "--minutes", help="how long to run (use 10080 for a week)"),
+    db: Path = typer.Option(LEARN_DB, "--db"),
+) -> None:
+    """Watch live BTC 5-minute markets, paper-trade every rule, learn, and print progress."""
+    import time
+
+    from polybot.btc5 import record
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.learner import learn
+
+    cfg = load_config(None)
+    t_end = time.time() + minutes * 60
+    typer.echo("Paper only: no real orders. Press Ctrl+C to stop; run again any time to resume.")
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        client = PolymarketClient(http)
+        while time.time() < t_end:
+            record(client, db, duration_s=min(300.0, t_end - time.time()), interval_s=2.0)
+            learn(db)
+            _print_learn(db)
+
+
+@learn_app.command("status")
+def learn_status(db: Path = typer.Option(LEARN_DB, "--db")) -> None:
+    """Learn from anything recorded so far and show the leaderboard."""
+    from polybot.learner import learn
+
+    learn(db)
+    _print_learn(db)
