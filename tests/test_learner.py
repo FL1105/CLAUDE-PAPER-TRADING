@@ -12,7 +12,8 @@ from polybot.learner import learn, report
 def _make(db: Path, n: int, edge: bool, seed: int = 1) -> None:
     """Synthetic BTC windows. The Up mid is 0.60 at the start and moves to 0.64 (rising) or 0.56
     (falling); the favourite is Up either way. With edge=True, Up wins 80% after a rise and 20%
-    after a fall, so only a momentum rule has an edge; otherwise prices are calibrated: Up wins with probability equal to the Up mid."""
+    after a fall, so only a momentum rule has an edge; otherwise prices are calibrated: Up wins with
+    probability equal to the Up mid."""
     rng = random.Random(seed)
     con = open_db(db)
     for i in range(n):
