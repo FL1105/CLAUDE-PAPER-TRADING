@@ -5,7 +5,7 @@
 # changelog in docs/GATES.md. The config hash is stamped on every paper fill and
 # report; gate 12 (data integrity) fails if it changes mid forward-test.
 
-config_version: 1
+config_version: 2
 seed: 20261005
 
 api:
@@ -89,8 +89,18 @@ fees:
   #   fee = fee_coeff * shares * p * (1 - p)
   formula: "parabolic"
   default_coeff: 0.05
-  per_category: {}                  # e.g. {"crypto": 0.05, "sports": 0.0}
-  zero_fee_categories: []
+  # Verified 2026-10-06 against docs.polymarket.com/trading/fees (docs/ASSUMPTIONS.md section 4).
+  per_category:
+    crypto: 0.07
+    sports: 0.05
+    finance: 0.04
+    politics: 0.04
+    mentions: 0.04
+    tech: 0.04
+    economics: 0.05
+    culture: 0.05
+    weather: 0.05
+  zero_fee_categories: [geopolitics, world]
   stress_multiplier: 2.0
 
 paper:

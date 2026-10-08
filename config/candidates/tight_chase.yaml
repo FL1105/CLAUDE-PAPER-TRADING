@@ -1,0 +1,4 @@
+name: tight_chase
+overrides:
+  execution:
+    max_chase: 0.01        # refuse to follow a wallet if price has moved > 1c

@@ -64,3 +64,31 @@ as the exchange contract or be split across events. Counting both sides naively
 can double count. Check a few transactions by hand against the Data API
 `/trades?user=` before trusting a mapping, and record what you found in
 ASSUMPTIONS.md.
+
+## Worked example (verified 2026-10-06 on SII-WANGZJ/Polymarket_data)
+
+`trades.parquet` columns: timestamp, maker, taker, price, usd_amount, token_amount,
+maker_direction, taker_direction, asset_id, condition_id, transaction_hash. Data runs to
+2026-10-04 and includes the V2 exchanges. About 2.4M fills per day, so a 90-day window of all
+wallets is too large for SQLite. The working route:
+
+```bash
+python scripts/hf_shortlist.py --start 2026-07-06 --end 2026-10-05   # activity-only shortlist
+polybot history import "hf://datasets/SII-WANGZJ/Polymarket_data/trades.parquet" \
+  --name hf-sii-taker --start 2026-07-06 --end 2026-10-05 --mapping config/history/hf_sii_taker.sql
+polybot history markets          # resolutions from markets.parquet (D37), no API calls
+polybot backtest --days 48 -c config/backtest_90d.yaml
+```
+
+The shortlist keeps wallets that pass the bot's own activity filters, drops bot-like wallets
+(over 1,000 trades in the window) and takes a deterministic hash sample of 10,000. It never
+looks at PnL.
+
+**DuckDB `httpfs` blocked?** Some sandboxes block `extensions.duckdb.org` over plain http.
+Download it over https and install from the file:
+```bash
+curl -o httpfs.gz https://extensions.duckdb.org/v<duckdb-version>/linux_amd64/httpfs.duckdb_extension.gz
+gunzip httpfs.gz && mv httpfs httpfs.duckdb_extension
+python -c "import duckdb; duckdb.connect().execute(\"INSTALL 'httpfs.duckdb_extension'\")"
+```
+Also needed: the file CDN `*.hf.co` must be reachable.

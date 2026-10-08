@@ -55,3 +55,4 @@ below paper ROI; >= 100 live fills over >= 30 days; no kill switch triggered.
 | config_version | date | change | reason | author |
 |---|---|---|---|---|
 | 1 | 2026-10-05 | initial thresholds from the build spec | baseline, set before any evaluation | initial build |
+| 2 | 2026-10-06 | `fees.per_category` and `zero_fee_categories` filled from the official fee docs; no gate threshold changed | fee schedule verified (docs/ASSUMPTIONS.md section 4) | build session |

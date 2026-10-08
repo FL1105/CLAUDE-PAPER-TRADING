@@ -1,0 +1,147 @@
+# Research config for the 90-day imported history: shorter trailing window so that
+# 42d trailing + 48d evaluation yields 3 epochs. NOT the forward-run config.
+config_version: 2
+seed: 20261005
+api:
+  gamma_base_url: https://gamma-api.polymarket.com
+  data_base_url: https://data-api.polymarket.com
+  clob_base_url: https://clob.polymarket.com
+  rate_limit_per_sec: 2.0
+  rate_limit_burst: 4
+  timeout_s: 15.0
+  max_retries: 5
+  backoff_base_s: 0.5
+  backoff_max_s: 30.0
+  user_agent: polybot-research/0.1 (read-only paper trading)
+  cache_dir: out/cache
+storage:
+  db_path: out/polybot.sqlite
+ingest:
+  page_limit: 500
+  max_offset: 3000
+  market_page_limit: 500
+  market_ids_per_request: 20
+  forward_overlap_pages: 1
+  history_import_batch: 50000
+stats:
+  fdr_q: 0.1
+  stake_cap_quantile: 0.95
+  alpha: 0.05
+  power: 0.8
+  naive_top_n: 20
+  bootstrap_resamples: 5000
+  small_n_exact_threshold: 30
+  selection_mc_sims: 500
+filters:
+  min_resolved_markets: 30
+  min_active_span_days: 20
+  max_two_sided_ratio: 0.2
+  max_trades_per_day: 200
+  max_closed_before_resolution_ratio: 0.5
+  min_entry_price: 0.05
+  max_entry_price: 0.9
+  max_single_market_pnl_share: 0.4
+  flag_wash_trading: true
+walkforward:
+  epoch_days: 14
+  trailing_window_days: 42
+placebo:
+  n_draws: 200
+  required_percentile: 95.0
+execution:
+  latency_L_s: 2.0
+  shadow_multipliers:
+  - 1
+  - 2
+  - 5
+  drift_half_life_s: 30.0
+  max_chase: 0.03
+  insufficient_depth: reject
+  default_tick_size: 0.01
+  max_median_slippage: 0.02
+  share_decimals: 2
+  sim_half_spread: 0.01
+  sim_levels: 5
+  sim_level_depth_usdc: 250.0
+  tape_min_window_s: 60
+fees:
+  formula: parabolic
+  default_coeff: 0.05
+  per_category:
+    crypto: 0.07
+    sports: 0.05
+    finance: 0.04
+    politics: 0.04
+    mentions: 0.04
+    tech: 0.04
+    economics: 0.05
+    culture: 0.05
+    weather: 0.05
+  zero_fee_categories:
+  - geopolitics
+  - world
+  stress_multiplier: 2.0
+paper:
+  bankroll_usdc: 1000.0
+  stake_frac: 0.005
+  max_market_frac: 0.02
+  max_total_exposure_frac: 0.3
+  max_concurrent_positions: 50
+  poll_interval_s: 10
+  heartbeat_interval_s: 60
+  max_signal_age_s: 300
+  settle_interval_s: 600
+  kill_check_interval_s: 300
+gates:
+  min_forward_days: 30
+  min_settled_trades: 300
+  min_distinct_markets: 120
+  min_epochs: 3
+  bootstrap_ci_level: 0.95
+  persistence_min_pooled_z: 1.64
+  persistence_min_positive_frac: 0.55
+  latency_must_survive_multiplier: 2
+  remove_top_k_trades: 3
+  max_single_market_pnl_share: 0.1
+  max_single_wallet_pnl_share: 0.35
+  min_fill_rate: 0.85
+  max_drawdown_frac: 0.2
+  losing_streak_percentile: 99.0
+  min_positive_epoch_frac: 0.6
+  max_epoch_loss_frac: 0.05
+  schema_drift_lookback_days: 7
+micro_live:
+  max_slippage_ratio: 1.5
+  min_fill_rate: 0.8
+  min_fills: 100
+  min_days: 30
+kill_switches:
+  max_drawdown_frac: 0.2
+  rolling_window_trades: 50
+  rolling_roi_percentile: 1.0
+  slippage_ratio: 2.0
+  modeled_slippage: 0.01
+  slippage_consecutive_days: 3
+  negative_oos_z_consecutive_epochs: 2
+synthetic:
+  n_markets: 3000
+  n_wallets: 2000
+  beta_a: 2.0
+  beta_b: 2.0
+  sigma_noise: 0.08
+  skilled_frac: 0.03
+  skilled_obs_noise: 0.02
+  skilled_threshold: 0.05
+  market_maker_frac: 0.02
+  price_model: calibrated
+  horizon_days: 180
+  activity_log_mean: 3.5
+  activity_log_sd: 1.0
+  max_markets_per_wallet: 600
+  skilled_scan_multiplier: 3.0
+  stake_log_mean: 3.5
+  stake_log_sd: 1.2
+  calibration_mc_sims: 2000
+  acceptance_null_seeds: 300
+  acceptance_max_false_promotion: 0.01
+  acceptance_min_power: 0.8

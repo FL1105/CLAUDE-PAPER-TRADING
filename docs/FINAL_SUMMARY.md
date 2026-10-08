@@ -29,15 +29,19 @@ loosened to meet it. Copy cost is the binding constraint. Details:
 `docs/CHECKPOINT_PHASE2.md`.
 
 ## 3. Real API limitations discovered
-**None could be discovered here.** The build sandbox's network policy blocked every
-`*.polymarket.com` host (and Hugging Face and GitHub), so no endpoint was ever
-called. Everything about the API is an explicitly labeled assumption in
-`docs/ASSUMPTIONS.md`: schemas, pagination caps, `/activity` time windows,
-`condition_ids` / `clob_token_ids` lookups, the fee formula and coefficient,
-and rate limits. Expected limitations to check first: `/trades` offset cap
-(deep history), taker-only feed, and fee schedule. A web search reported that
-Polymarket moved to new exchange contracts on 2026-04-28; history datasets may
-stop there (`docs/HISTORY_IMPORT.md`).
+Update 2026-10-06: `polybot probe` ran against the real API (13 steps, no failures, no
+schema drift; findings in `docs/ASSUMPTIONS.md`). Discovered since the first build:
+- **`/trades` offset cap.** The global feed stops at about 3,500 rows (about 7 minutes of
+  trades), so `backfill --days 90` cannot reach 90 days. Real history comes from the
+  Hugging Face dataset instead (`docs/HISTORY_IMPORT.md`, `polybot history import|markets`).
+- **Still unverified:** the fee formula and coefficient, real spreads and depth, rate limits.
+  Backtests keep using the guessed 1 c / $250-per-level book until the forward run records
+  real books.
+
+The text below is the original build-time statement and is kept for the record.
+
+> The build sandbox's network policy blocked every `*.polymarket.com` host, so no endpoint
+> was ever called. Everything about the API was an explicitly labeled assumption.
 
 ## 4. Verified vs not verified
 | verified (by tests, here) | NOT verified |

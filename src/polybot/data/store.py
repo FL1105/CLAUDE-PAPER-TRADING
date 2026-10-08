@@ -530,7 +530,7 @@ class Store:
             else:
                 where.append(f"wallet IN ({', '.join('?' * len(ws))})")
                 params.extend(ws)
-        return pd.read_sql_query(
+        df = pd.read_sql_query(
             f"""SELECT wallet, condition_id AS market, outcome_index AS outcome, side, price,
                       size_shares AS shares, ts, tx_hash, token_id, trade_key
                FROM trades WHERE {" AND ".join(where)}
@@ -538,6 +538,12 @@ class Store:
             self.conn,
             params=params,
         )
+        if (
+            len(df) > 100_000
+        ):  # big analysis loads: ids as categories make filtering/joins ~3x faster
+            for col in ("wallet", "market", "token_id"):
+                df[col] = df[col].astype("category")
+        return df
 
     def markets_frame(self) -> pd.DataFrame:
         """Markets: market, status, winning_outcome (NaN unless resolved), resolved_ts, end_ts."""

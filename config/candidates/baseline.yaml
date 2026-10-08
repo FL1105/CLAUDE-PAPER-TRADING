@@ -1,0 +1,5 @@
+# Fleet candidate = a partial override of config/default.yaml.
+# `gates`, `kill_switches` and `micro_live` may NOT be overridden: every candidate
+# is judged by the same bar, so a candidate cannot promote by loosening its gates.
+name: baseline
+overrides: {}

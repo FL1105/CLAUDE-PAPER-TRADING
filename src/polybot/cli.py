@@ -221,6 +221,28 @@ def history_import(
     typer.echo("Next: `polybot backfill --markets-only` to attach markets and resolutions.")
 
 
+@history_app.command("markets")
+def history_markets(
+    path: str = typer.Argument(
+        "hf://datasets/SII-WANGZJ/Polymarket_data/markets.parquet", help="markets.parquet"
+    ),
+    config: Path | None = ConfigOpt,
+) -> None:
+    """Attach markets + resolutions for stored trades from the dataset (no API calls)."""
+    from polybot.data.history import import_markets
+    from polybot.data.store import Store
+
+    cfg = load_config(config)
+    with Store(ROOT / cfg.storage.db_path) as st:
+        rows = st.conn.execute(
+            "SELECT condition_id, max(ts) FROM trades WHERE condition_id IS NOT NULL "
+            "GROUP BY condition_id"
+        ).fetchall()
+        stats = import_markets(st, path, [r[0] for r in rows], {r[0]: int(r[1]) for r in rows})
+        stats["wanted"] = len(rows)
+        typer.echo(json.dumps(stats, indent=1))
+
+
 def _frames(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
     from polybot.data.store import Store
 
@@ -519,3 +541,256 @@ def gates(
 
 if __name__ == "__main__":
     app()
+
+
+fleet_app = typer.Typer(help="Run several candidate configs side by side (paper only).")
+app.add_typer(fleet_app, name="fleet")
+CandDirOpt = typer.Option(ROOT / "config" / "candidates", "--candidates", help="candidate YAML dir")
+FLEET_DIR = ROOT / "out" / "fleet"
+
+
+@fleet_app.command("init")
+def fleet_init(candidates: Path = CandDirOpt, config: Path | None = ConfigOpt) -> None:
+    """Create one database per candidate, seeded from the backfilled history."""
+    from polybot.fleet import load_candidates, seed_database
+
+    cfg = load_config(config)
+    for c in load_candidates(candidates, ROOT, FLEET_DIR):
+        seeded = seed_database(c, ROOT / cfg.storage.db_path)
+        typer.echo(
+            f"{c.name}: {'seeded from ' + cfg.storage.db_path if seeded else 'exists/skipped'}"
+        )
+
+
+@fleet_app.command("run")
+def fleet_run(
+    candidates: Path = CandDirOpt,
+    iterations: int | None = typer.Option(None, "--iterations"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Forward-paper every candidate in one process (Ctrl-C safe; restart any time)."""
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.fleet import load_candidates, run_fleet, seed_database
+
+    _setup_logging(verbose)
+    cands = load_candidates(candidates, ROOT, FLEET_DIR)
+    base = load_config(None)
+    for c in cands:
+        seed_database(c, ROOT / base.storage.db_path)
+    with HttpClient(base.api, seed=base.seed) as http:
+        run_fleet(cands, PolymarketClient(http), max_iterations=iterations)
+
+
+@fleet_app.command("report")
+def fleet_report(candidates: Path = CandDirOpt) -> None:
+    """Write out/fleet/fleet.json and out/fleet/fleet.html (open it in a browser)."""
+    from polybot.fleet import load_candidates, write_fleet
+    from polybot.fleet_view import write_html
+
+    cands = load_candidates(candidates, ROOT, FLEET_DIR)
+    data = write_fleet(cands)
+    write_html(data, FLEET_DIR / "fleet.html")
+    for r in data["candidates"]:
+        i = r["income_30d"]
+        rng = "n/a" if i["lo"] is None else f"{i['lo']:+.0f}..{i['hi']:+.0f}"
+        typer.echo(
+            f"{r['name']}: tier={r['tier']} trades={r['summary']['settled_trades']} "
+            f"pnl={r['summary']['pnl']:+.2f} 30d-range={rng}"
+        )
+    typer.echo(f"Wrote {FLEET_DIR / 'fleet.html'}")
+
+
+maker_app = typer.Typer(help="Passive market-making research: record real books, replay a maker.")
+app.add_typer(maker_app, name="maker")
+MAKER_DB = ROOT / "out" / "maker" / "maker.sqlite"
+
+
+@maker_app.command("record")
+def maker_record(
+    minutes: float = typer.Option(30.0, "--minutes"),
+    markets: int = typer.Option(15, "--markets", help="top-volume open markets to watch"),
+    interval: float = typer.Option(6.0, "--interval", help="seconds between snapshots"),
+    min_spread: float = typer.Option(0.01, "--min-spread", help="skip markets quoted tighter"),
+    db: Path = typer.Option(MAKER_DB, "--db"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Record top-of-book snapshots and the trade tape for the most liquid markets."""
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.maker import liquid_tokens, record
+
+    _setup_logging(verbose)
+    cfg = load_config(None)
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        client = PolymarketClient(http)
+        wl = liquid_tokens(client, markets, min_spread=min_spread)
+        typer.echo(f"recording {len(wl)} markets for {minutes} min -> {db}")
+        typer.echo(json.dumps(record(client, db, wl, duration_s=minutes * 60, interval_s=interval)))
+
+
+@maker_app.command("sim")
+def maker_sim(
+    db: Path = typer.Option(MAKER_DB, "--db"),
+    quote_usd: float = typer.Option(10.0, "--quote-usd"),
+    max_inventory_usd: float = typer.Option(50.0, "--max-inventory-usd"),
+    min_spread: float = typer.Option(0.02, "--min-spread"),
+) -> None:
+    """Replay a conservative passive maker over the recorded books and tape."""
+    from polybot.maker import MakerParams, simulate
+
+    rep = simulate(db, MakerParams(quote_usd, max_inventory_usd, min_spread))
+    typer.echo(json.dumps(rep.summary(), indent=1))
+
+
+btc5_app = typer.Typer(
+    help="BTC 5-minute Up/Down: record real asks near expiry and test a favourite-buy."
+)
+app.add_typer(btc5_app, name="btc5")
+BTC5_DB = ROOT / "out" / "btc5" / "btc5.sqlite"
+
+
+@btc5_app.command("record")
+def btc5_record(
+    minutes: float = typer.Option(60.0, "--minutes"),
+    interval: float = typer.Option(2.0, "--interval"),
+    db: Path = typer.Option(BTC5_DB, "--db"),
+) -> None:
+    """Snapshot the Up token's top of book every few seconds for each 5-minute window."""
+    from polybot.btc5 import record
+    from polybot.data.client import HttpClient, PolymarketClient
+
+    cfg = load_config(None)
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        typer.echo(
+            json.dumps(
+                record(PolymarketClient(http), db, duration_s=minutes * 60, interval_s=interval)
+            )
+        )
+
+
+@btc5_app.command("analyze")
+def btc5_analyze(
+    db: Path = typer.Option(BTC5_DB, "--db"),
+    lag: float = typer.Option(2.0, "--lag", help="seconds of latency before the order lands"),
+) -> None:
+    """Net ROI of buying the favourite at the real ask N seconds before expiry."""
+    from polybot.btc5 import analyze
+
+    for off in (120.0, 60.0, 30.0, 15.0, 8.0):
+        r = analyze(db, offset_s=off, lag_s=lag)
+        typer.echo(json.dumps({"seconds_before_end": off, **r}))
+
+
+learn_app = typer.Typer(help="Easy mode: a simple paper bot that learns which rule (if any) works.")
+app.add_typer(learn_app, name="learn")
+LEARN_DB = ROOT / "out" / "btc5" / "btc5.sqlite"
+
+
+def _print_learn(db: Path) -> None:
+    from polybot.learner import MIN_TRADES, report
+
+    r = report(db)
+    typer.echo("")
+    typer.echo(
+        f"windows learned: {r['windows_learned']}   bot trades: {r['bot_trades']}   "
+        f"paper bankroll: {r['bot_bankroll'] if r['bot_bankroll'] else 1000.0:.2f}"
+    )
+    typer.echo(
+        f"{'rule@seconds-before-end':<26}{'windows':>8}{'win%':>7}"
+        f"{'net ret':>9}{'lower bd':>10}  proven"
+    )
+    for a in r["arms"]:
+        if not a["windows"]:
+            continue
+        typer.echo(
+            f"{a['arm']:<26}{a['windows']:>8}{100 * a['win_rate']:>6.0f}%"
+            f"{100 * a['mean_net_return']:>8.1f}%{100 * a['lower_bound']:>9.1f}%  "
+            f"{'YES' if a['proven'] else '-'}"
+        )
+    if r["proven_arms"]:
+        typer.echo("PROVEN (lower bound > 0 after correction): " + ", ".join(r["proven_arms"]))
+    else:
+        typer.echo(
+            f"No rule is proven yet (needs {MIN_TRADES}+ windows and a positive lower bound). "
+            "Sitting out is the correct move until one is."
+        )
+
+
+@learn_app.command("run")
+def learn_run(
+    minutes: float = typer.Option(60.0, "--minutes", help="how long to run (use 10080 for a week)"),
+    db: Path = typer.Option(LEARN_DB, "--db"),
+) -> None:
+    """Watch live BTC 5-minute markets, paper-trade every rule, learn, and print progress."""
+    import time
+
+    from polybot.btc5 import record
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.learner import learn
+
+    cfg = load_config(None)
+    t_end = time.time() + minutes * 60
+    typer.echo("Paper only: no real orders. Press Ctrl+C to stop; run again any time to resume.")
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        client = PolymarketClient(http)
+        while time.time() < t_end:
+            record(client, db, duration_s=min(300.0, t_end - time.time()), interval_s=2.0)
+            learn(db)
+            _print_learn(db)
+
+
+@learn_app.command("status")
+def learn_status(db: Path = typer.Option(LEARN_DB, "--db")) -> None:
+    """Learn from anything recorded so far and show the leaderboard."""
+    from polybot.learner import learn
+
+    learn(db)
+    _print_learn(db)
+
+
+rewards_app = typer.Typer(
+    help="Liquidity-reward farming study (paper): record depth, estimate rewards."
+)
+app.add_typer(rewards_app, name="rewards")
+RW_DB = ROOT / "out" / "rewards" / "rewards.sqlite"
+
+
+@rewards_app.command("record")
+def rewards_record(
+    minutes: float = typer.Option(120.0, "--minutes"),
+    markets: int = typer.Option(10, "--markets"),
+    interval: float = typer.Option(20.0, "--interval"),
+    db: Path = typer.Option(RW_DB, "--db"),
+) -> None:
+    """Record real book depth near the mid and the trade tape for the best reward markets."""
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.rewards import pick_markets, record
+
+    cfg = load_config(None)
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        client = PolymarketClient(http)
+        picked = pick_markets(client, markets)
+        for m in picked:
+            typer.echo(f"  pool ${m['pool']:.0f}/day  v={100 * m['v']:.1f}c  {m['q'][:60]}")
+        typer.echo(
+            json.dumps(record(client, db, picked, duration_s=minutes * 60, interval_s=interval))
+        )
+
+
+@rewards_app.command("sim")
+def rewards_sim(
+    db: Path = typer.Option(RW_DB, "--db"),
+    size: float = typer.Option(100.0, "--size", help="shares quoted on each side"),
+) -> None:
+    """Estimated reward income minus replayed fill losses, for quotes 1, 2 and 3 cents from mid."""
+    from polybot.rewards import simulate
+
+    for d in (1.0, 2.0, 3.0):
+        rows = simulate(db, size=size, dist_cents=d)
+        rew = sum(r["reward_usd"] for r in rows)
+        pnl = sum(r["fill_pnl_usd"] for r in rows)
+        hrs = max((r["hours"] for r in rows), default=0.0)
+        n = len(rows)
+        typer.echo(
+            f"{d:.0f}c from mid: {n} markets, {hrs:.1f} h | est. rewards ${rew:.2f}  "
+            f"fill PnL ${pnl:+.2f}  net ${rew + pnl:+.2f}  fills {sum(r['fills'] for r in rows)}"
+        )
