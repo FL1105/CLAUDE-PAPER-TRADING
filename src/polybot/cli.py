@@ -745,3 +745,52 @@ def learn_status(db: Path = typer.Option(LEARN_DB, "--db")) -> None:
 
     learn(db)
     _print_learn(db)
+
+
+rewards_app = typer.Typer(
+    help="Liquidity-reward farming study (paper): record depth, estimate rewards."
+)
+app.add_typer(rewards_app, name="rewards")
+RW_DB = ROOT / "out" / "rewards" / "rewards.sqlite"
+
+
+@rewards_app.command("record")
+def rewards_record(
+    minutes: float = typer.Option(120.0, "--minutes"),
+    markets: int = typer.Option(10, "--markets"),
+    interval: float = typer.Option(20.0, "--interval"),
+    db: Path = typer.Option(RW_DB, "--db"),
+) -> None:
+    """Record real book depth near the mid and the trade tape for the best reward markets."""
+    from polybot.data.client import HttpClient, PolymarketClient
+    from polybot.rewards import pick_markets, record
+
+    cfg = load_config(None)
+    with HttpClient(cfg.api, seed=cfg.seed) as http:
+        client = PolymarketClient(http)
+        picked = pick_markets(client, markets)
+        for m in picked:
+            typer.echo(f"  pool ${m['pool']:.0f}/day  v={100 * m['v']:.1f}c  {m['q'][:60]}")
+        typer.echo(
+            json.dumps(record(client, db, picked, duration_s=minutes * 60, interval_s=interval))
+        )
+
+
+@rewards_app.command("sim")
+def rewards_sim(
+    db: Path = typer.Option(RW_DB, "--db"),
+    size: float = typer.Option(100.0, "--size", help="shares quoted on each side"),
+) -> None:
+    """Estimated reward income minus replayed fill losses, for quotes 1, 2 and 3 cents from mid."""
+    from polybot.rewards import simulate
+
+    for d in (1.0, 2.0, 3.0):
+        rows = simulate(db, size=size, dist_cents=d)
+        rew = sum(r["reward_usd"] for r in rows)
+        pnl = sum(r["fill_pnl_usd"] for r in rows)
+        hrs = max((r["hours"] for r in rows), default=0.0)
+        n = len(rows)
+        typer.echo(
+            f"{d:.0f}c from mid: {n} markets, {hrs:.1f} h | est. rewards ${rew:.2f}  "
+            f"fill PnL ${pnl:+.2f}  net ${rew + pnl:+.2f}  fills {sum(r['fills'] for r in rows)}"
+        )
