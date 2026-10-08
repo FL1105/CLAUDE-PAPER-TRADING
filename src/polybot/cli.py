@@ -780,12 +780,15 @@ def rewards_record(
 def rewards_sim(
     db: Path = typer.Option(RW_DB, "--db"),
     size: float = typer.Option(100.0, "--size", help="shares quoted on each side"),
+    pull: float | None = typer.Option(
+        None, "--pull", help="pull quotes for an interval after a mid move of this many cents"
+    ),
 ) -> None:
     """Estimated reward income minus replayed fill losses, for quotes 1, 2 and 3 cents from mid."""
     from polybot.rewards import simulate
 
     for d in (1.0, 2.0, 3.0):
-        rows = simulate(db, size=size, dist_cents=d)
+        rows = simulate(db, size=size, dist_cents=d, pull_move_cents=pull)
         rew = sum(r["reward_usd"] for r in rows)
         pnl = sum(r["fill_pnl_usd"] for r in rows)
         hrs = max((r["hours"] for r in rows), default=0.0)

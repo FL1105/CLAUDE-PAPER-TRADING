@@ -9,6 +9,7 @@ import sys
 URL = "https://github.com/FL1105/CLAUDE-PAPER-TRADING.git"
 BRANCH = "claude/polybit-probe-domains-yd5w11"
 MINUTES = "10080"  # how long to run: 10080 = one week; stop any time with Ctrl+C
+MODE = "learn"  # "learn" = the learning paper bot; "rewards" = record reward-farming data for days
 HOME = pathlib.Path(os.environ.get("BOT_HOME", pathlib.Path.home())) / "CLAUDE-PAPER-TRADING"
 
 
@@ -25,4 +26,8 @@ bindir = venv / ("Scripts" if os.name == "nt" else "bin")
 if not (bindir / ("python.exe" if os.name == "nt" else "python")).exists():
     run(sys.executable, "-m", "venv", venv)
 run(bindir / ("python.exe" if os.name == "nt" else "python"), "-m", "pip", "install", "-q", "-e", f"{HOME}[dev]")
-run(bindir / ("polybot.exe" if os.name == "nt" else "polybot"), "learn", "run", "--minutes", MINUTES)
+polybot = bindir / ("polybot.exe" if os.name == "nt" else "polybot")
+if MODE == "rewards":
+    run(polybot, "rewards", "record", "--minutes", MINUTES, "--markets", "12")
+else:
+    run(polybot, "learn", "run", "--minutes", MINUTES)

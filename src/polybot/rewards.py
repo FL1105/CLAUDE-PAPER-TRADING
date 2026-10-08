@@ -183,17 +183,33 @@ def simulate_market(
     *,
     size: float,
     dist: float,
+    max_inventory: float | None = None,
+    pull_move: float | None = None,
 ) -> Result:
-    """Two-sided quote of ``size`` shares at ``dist`` (price units) from the mid."""
+    """Two-sided quote of ``size`` shares at ``dist`` (price units) from the mid.
+
+    ``max_inventory`` (shares, default ``size``) stops quoting the side that would add to an
+    already full position. ``pull_move`` (price units): if the mid moved at least this much since
+    the previous snapshot, quotes are pulled for the next interval (no fills, no reward), like a
+    bot that steps back during fast moves.
+    """
+    cap = size if max_inventory is None else max_inventory
     res = Result(capital=size)  # about `size` dollars: a YES bid and a NO bid of `size` shares
     ti = 0
     shares: list[float] = []
+    prev_mid: float | None = None
     for k, (ts, mid, bids, asks) in enumerate(books):
         res.last_mid = mid
         nxt = books[k + 1][0] if k + 1 < len(books) else ts
-        mine = order_score(v, dist, size)
+        pulled = pull_move is not None and prev_mid is not None and abs(mid - prev_mid) >= pull_move
+        prev_mid = mid
+        mine = 0.0 if pulled else order_score(v, dist, size)
         comp = competitor_score(bids, asks, mid, v)
         shares.append(mine / (mine + comp) if mine + comp > 0 else 0.0)
+        if pulled:
+            while ti < len(trades) and trades[ti][0] <= nxt:
+                ti += 1
+            continue
         bid_px, ask_px = round(mid - dist, 4), round(mid + dist, 4)
         q_bid = sum(s for p, s in bids if p >= bid_px - 1e-9)  # queue ahead at or better than ours
         q_ask = sum(s for p, s in asks if p <= ask_px + 1e-9)
@@ -202,7 +218,7 @@ def simulate_market(
             ti += 1
             if t_ts <= ts:
                 continue
-            if side == "SELL" and price <= bid_px + 1e-9:  # taker sells YES into our bid
+            if side == "SELL" and price <= bid_px + 1e-9 and res.inventory < cap:
                 if price < bid_px - 1e-9:
                     avail = tsz
                 else:
@@ -215,7 +231,7 @@ def simulate_market(
                     res.inventory += q
                     res.fills += 1
                     res.volume += q * bid_px
-            elif side == "BUY" and price >= ask_px - 1e-9:  # taker buys YES from our ask (NO bid)
+            elif side == "BUY" and price >= ask_px - 1e-9 and res.inventory > -cap:
                 if price > ask_px + 1e-9:
                     avail = tsz
                 else:
@@ -235,7 +251,9 @@ def simulate_market(
     return res
 
 
-def simulate(db: Path, *, size: float, dist_cents: float) -> list[dict[str, Any]]:
+def simulate(
+    db: Path, *, size: float, dist_cents: float, pull_move_cents: float | None = None
+) -> list[dict[str, Any]]:
     con = open_db(db)
     meta = {
         t: (q, pool, v)
@@ -254,7 +272,10 @@ def simulate(db: Path, *, size: float, dist_cents: float) -> list[dict[str, Any]
     out = []
     for tok, bk in books.items():
         q, pool, v = meta[tok]
-        r = simulate_market(bk, trades.get(tok, []), pool, v, size=size, dist=dist_cents / 100)
+        pm = None if pull_move_cents is None else pull_move_cents / 100
+        r = simulate_market(
+            bk, trades.get(tok, []), pool, v, size=size, dist=dist_cents / 100, pull_move=pm
+        )
         out.append(
             {
                 "market": q[:50],

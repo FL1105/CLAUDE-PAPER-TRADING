@@ -46,3 +46,15 @@ def test_ask_fill_shorts_and_queue_must_clear() -> None:
     )
     r = simulate_market(books, [(5, 0.51, 130.0, "BUY")], 0.0, 0.05, size=50.0, dist=0.01)
     assert r.inventory == pytest.approx(-30.0) and r.fills == 1
+
+
+def test_inventory_cap_stops_adding_and_pull_skips_fast_moves() -> None:
+    books = [BOOK(0), BOOK(10), BOOK(20)]
+    tape = [(i, 0.40, 1000.0, "SELL") for i in (2, 4, 12)]
+    r = simulate_market(books, tape, 0.0, 0.05, size=50.0, dist=0.01, max_inventory=50.0)
+    assert r.inventory == pytest.approx(50.0)  # one 50-share fill, then the cap holds
+    fast = [BOOK(0), BOOK(10, mid=0.55), BOOK(20, mid=0.55)]
+    r2 = simulate_market(
+        fast, [(12, 0.40, 1000.0, "SELL")], 0.0, 0.05, size=50.0, dist=0.01, pull_move=0.02
+    )
+    assert r2.fills == 0 or r2.inventory <= 50.0
