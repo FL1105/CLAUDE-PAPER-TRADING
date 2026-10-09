@@ -28,6 +28,21 @@ def next_run_time(now: datetime, tz: str = "America/New_York", hhmm: str = "16:1
     raise RuntimeError("no session found in 14 days")
 
 
+def last_completed_session(now: datetime, tz: str = "America/New_York", hhmm: str = "16:10"):
+    """The most recent NYSE session whose data should exist at `now` (after hh:mm local on a session day,
+    that is today; otherwise the previous session). Naive datetimes are read as `tz` wall-clock time."""
+    import pandas as pd
+
+    z = ZoneInfo(tz)
+    now = now.astimezone(z) if now.tzinfo else now.replace(tzinfo=z)
+    h, m = (int(x) for x in hhmm.split(":"))
+    today = pd.Timestamp(now.date())
+    sess = nyse_sessions(today - pd.Timedelta(days=14), today)
+    if len(sess) and sess[-1] == today and (now.hour, now.minute) < (h, m):
+        sess = sess[:-1]
+    return sess[-1]
+
+
 def heartbeat_age_hours(path: Path, now: float | None = None) -> float | None:
     if not path.exists():
         return None
@@ -60,8 +75,9 @@ def run_loop(job: Callable[[], None], tz: str, hhmm: str, sleep=time.sleep, now_
              max_iter: int | None = None) -> None:
     i = 0
     while max_iter is None or i < max_iter:
-        nxt = next_run_time(now_fn(), tz, hhmm)
-        sleep(max((nxt - now_fn().astimezone(nxt.tzinfo)).total_seconds(), 0))
+        z = ZoneInfo(tz)
+        nxt = next_run_time(now_fn(z), tz, hhmm)
+        sleep(max((nxt - now_fn(z).astimezone(nxt.tzinfo)).total_seconds(), 0))
         try:
             job()
         except Exception as e:  # noqa: BLE001

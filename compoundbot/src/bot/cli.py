@@ -163,6 +163,9 @@ def cmd_promote(a) -> int:
 
 def cmd_costs(a) -> int:
     from bot.learn import costs as LC
+    if a.apply and not a.by.strip():
+        print("REFUSED: --apply needs --by <your name> (decreases make strategies look better; they need a signature)")
+        return 1
     u, costs = C.load_universe(), C.load_costs()
     df = LC.collect_fills(ROOT / "runs", u, include_sim=a.include_sim)
     ests = LC.estimate(df, costs)
@@ -270,7 +273,17 @@ def cmd_paper(a) -> int:
     u, costs = C.load_universe(), C.load_costs()
     panel, meta = P.load_cached_panel(u)
     broker, sp = _broker(a, u, costs)
-    asof = panel["close"].dropna(how="all").index.max()
+    # the session we SHOULD have data for now, not the newest bar in the cache: a stale cache must be caught
+    from bot.run.scheduler import last_completed_session
+    sched = C.load_schedule()
+    asof = last_completed_session(pd.Timestamp.now(tz=sched.timezone).to_pydatetime(), sched.timezone,
+                                  sched.decision_time)
+    if getattr(a, "asof", None):
+        asof = pd.Timestamp(a.asof)
+    if getattr(a, "refresh", None):
+        P.fetch_and_cache(P.choose_provider(a.refresh), u, str(panel["close"].index.min().date()),
+                          str(asof.date()), report_path=REPORTS / "data_quality.md")
+        panel, meta = P.load_cached_panel(u)
     try:
         res = run_daily(asof, panel, broker, tag=meta["tag"])
     except Exception as e:  # noqa: BLE001
@@ -289,14 +302,40 @@ def cmd_nightly(a) -> int:
     rc = cmd_paper(a)
     from bot.monitor.weekly_review import write_weekly
     if pd.Timestamp.today().weekday() == 4 or a.weekly:
-        print("weekly:", write_weekly(ROOT / "runs", REPORTS))
+        dj = ROOT / "state" / "drift.json"
+        note = ""
+        if dj.exists():
+            d = json.loads(dj.read_text())
+            note = f"- status {d['action']}: {'; '.join(d['reasons']) or 'no concerns'}"
+        print("weekly:", write_weekly(ROOT / "runs", REPORTS, drift_note=note))
     try:  # unattended learning step: only ever makes cost estimates MORE conservative
         a.auto, a.apply, a.by, a.breakeven, a.include_sim = True, False, "", False, False
         cmd_costs(a)
     except Exception as e:  # noqa: BLE001
         print(f"cost calibration skipped: {e}")
+    _drift_step()
     cmd_gate(a)
     return rc
+
+
+def _drift_step() -> None:
+    """Daily drift check: realised Sharpe/vol/tracking error vs what research expected. Persistent shortfall
+    switches the book to cash (state/CASH_MODE, removed only by a person) and alerts."""
+    from bot.monitor.drift import apply_action, evaluate_runs
+    from bot.monitor.weekly_review import load_runs
+    from bot.run.scheduler import alert
+    try:
+        runs = load_runs(ROOT / "runs")
+        rj = REPORTS / "research_v1.json"
+        exp = [o["oos_sharpe"] for o in json.loads(rj.read_text())["outcomes"].values() if o["verdict"] == "KEEP"] \
+            if rj.exists() else []
+        expected = float(sum(exp) / len(exp)) if exp else 0.5
+        replay, _ = _replay_for_runs(runs)
+        status = evaluate_runs(runs, replay, expected, C.load_risk().target_vol_annual)
+        apply_action(status, ROOT / "state", alert)
+        print("drift:", status["action"], status["reasons"])
+    except Exception as e:  # noqa: BLE001
+        print(f"drift check skipped: {type(e).__name__}: {e}")
 
 
 def cmd_gate(a) -> int:
@@ -402,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="bot")
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("data")
-    d.add_argument("--source", default="csv", choices=["csv", "alpaca", "synthetic"])
+    d.add_argument("--source", default="csv", choices=["csv", "yahoo", "alpaca", "synthetic"])
     d.add_argument("--start", default="2003-01-01")
     d.add_argument("--end", default=str(pd.Timestamp.today().date()))
     d.add_argument("--seed", type=int, default=0)
@@ -442,6 +481,9 @@ def main(argv: list[str] | None = None) -> int:
         q = sub.add_parser(name)
         q.add_argument("--broker", default="local", choices=["local", "alpaca"])
         q.add_argument("--weekly", action="store_true")
+        q.add_argument("--refresh", default="", choices=["", "csv", "yahoo", "alpaca"],
+                       help="re-fetch data from this source before running (stale data is then blocked)")
+        q.add_argument("--asof", default="", help="run for this session date instead of the latest one (demos)")
         q.set_defaults(fn=fn)
     g = sub.add_parser("gate")
     g.add_argument("--paper-days", type=int, default=60, dest="paper_days")

@@ -62,8 +62,10 @@ def trial_counts(path: Path) -> tuple[int, float]:
 
 # ----------------------------------------------------------------------------- data split
 def split_holdout(panel: dict, years: float) -> tuple[dict, dict, pd.Timestamp]:
+    if not years > 0:
+        raise ValueError("holdout years must be > 0 (the holdout is mandatory)")
     idx = panel["close"].index
-    cut = idx[-1] - pd.DateOffset(years=int(years)) if years else idx[-1]
+    cut = idx[-1] - pd.Timedelta(days=int(round(365.25 * years)))
     cut = idx[idx.searchsorted(cut)]
     dev = {k: v.loc[: cut - pd.Timedelta(days=1)] if v is not None else None for k, v in panel.items()}
     hold = {k: v.loc[cut:] if v is not None else None for k, v in panel.items()}
@@ -94,19 +96,23 @@ class StrategyOutcome:
 
 
 def run_trials(spec: Spec, panel: dict, universe: Universe, risk: Risk, costs: Costs,
-               exec_mode: str, cost_multiplier: float, tag: str) -> tuple[dict, dict]:
+               exec_mode: str, multipliers: tuple[float, ...], tag: str) -> tuple[dict, dict]:
+    """Backtest every grid combination once per cost multiplier. Weights do not depend on costs, so they
+    are built once (the expensive part) and reused. Returns ({multiplier: {key: result}}, {key: weights})."""
     parts = split_universe(panel["close"], universe)
     cols = parts[spec.universe]
     sub = {"close": panel["close"][cols], "open": panel["open"][cols], "cash": panel["cash"],
            "volume": panel["volume"][cols] if panel.get("volume") is not None else None}
-    res, weights = {}, {}
+    res: dict[float, dict] = {m: {} for m in multipliers}
+    weights = {}
     for p in spec.combos():
         w = spec.build(sub["close"], p, risk)
         weights[key(p)] = w
-        res[key(p)] = run_backtest(
-            sub, w, costs=costs, risk=risk, universe=universe,
-            rebalance=rebalance_dates(w.index, spec.rebalance), exec_mode=exec_mode,
-            cost_multiplier=cost_multiplier, tag=tag)
+        reb = rebalance_dates(w.index, spec.rebalance)
+        for m in multipliers:
+            res[m][key(p)] = run_backtest(
+                sub, w, costs=costs, risk=risk, universe=universe, rebalance=reb, exec_mode=exec_mode,
+                cost_multiplier=m, tag=tag)
     return res, weights
 
 
@@ -118,13 +124,15 @@ def _first_valid(res: BacktestResult) -> pd.Timestamp:
 def walk_forward(trials: dict[str, BacktestResult], trials_x2: dict[str, BacktestResult],
                  cash: pd.Series, min_train_years: float, test_years: float):
     """Expanding window. Returns stitched OOS series and the list of chosen params per window."""
+    if not (min_train_years > 0 and test_years > 0):
+        raise ValueError("min_train_years and test_years must be > 0")
     any_res = next(iter(trials.values()))
     idx = any_res.net.index
-    start = idx[0] + pd.DateOffset(years=int(min_train_years))
+    start = idx[0] + pd.Timedelta(days=int(round(365.25 * min_train_years)))
     edges = []
     t0 = idx[idx.searchsorted(start)]
     while t0 < idx[-1]:
-        t1 = t0 + pd.DateOffset(years=int(test_years))
+        t1 = t0 + pd.Timedelta(days=int(round(365.25 * test_years)))
         edges.append((t0, min(t1, idx[-1] + pd.Timedelta(days=1))))
         t0 = idx[min(idx.searchsorted(t1), len(idx) - 1)]
         if t1 > idx[-1]:
@@ -286,8 +294,8 @@ def research(panel: dict, universe: Universe, risk: Risk, costs: Costs, registry
     for name, spec in registry.items():
         if only and name not in only:
             continue
-        t1, w = run_trials(spec, panel, universe, risk, costs, exec_mode, 1.0, tag)
-        t2, _ = run_trials(spec, panel, universe, risk, costs, exec_mode, 2.0, tag)
+        both, w = run_trials(spec, panel, universe, risk, costs, exec_mode, (1.0, 2.0), tag)
+        t1, t2 = both[1.0], both[2.0]
         for k, r in t1.items():
             log_trial(exp_path, {"stage": "trial", "strategy": name, "params": json.loads(k),
                                  "sharpe": metrics.sharpe(r.net, cash), "n_days": len(r.net),

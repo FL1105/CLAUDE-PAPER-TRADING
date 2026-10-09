@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +41,11 @@ def validate_proposal(p: dict, registry: dict) -> dict:
             raise ProposalRejected(f"parameter {k!r} is forbidden")
         if not isinstance(v, list) or not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
             raise ProposalRejected(f"{k}: values must be a list of numbers")
+        if not all(math.isfinite(x) and x > 0 for x in v):
+            raise ProposalRejected(f"{k}: values must be finite and positive")
+        existing = registry[name].grid[k]
+        if all(isinstance(x, int) for x in existing) and not all(isinstance(x, int) for x in v):
+            raise ProposalRejected(f"{k}: values must be whole numbers like the existing grid {existing}")
         if len(v) > 5:
             raise ProposalRejected(f"{k}: too many values (max 5)")
     pid = hashlib.sha1(json.dumps([name, grid], sort_keys=True).encode()).hexdigest()[:8]

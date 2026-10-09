@@ -137,6 +137,8 @@ def apply_estimates(ests: list[ClassEstimate], approved_by: str, only_increases:
                     cfg_dir: Path | None = None, now: str | None = None) -> list[ClassEstimate]:
     """Write config/costs_learned.yaml (merged with what is there) and append to state history.
     only_increases=True is the unattended mode: decreases are left as proposals."""
+    if not only_increases and not approved_by.strip():
+        raise PermissionError("applying cost decreases needs an operator name (--by)")
     cfg_dir = Path(cfg_dir or CFG)
     path = cfg_dir / "costs_learned.yaml"
     cur = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -150,7 +152,9 @@ def apply_estimates(ests: list[ClassEstimate], approved_by: str, only_increases:
     if not applied:
         return []
     who = approved_by if approved_by else "auto-conservative"
-    cur.update({"approved_by": who, "updated": now or time.strftime("%Y-%m-%d"),
+    # an unattended increase must not erase a human signature that is already on the file
+    signer = cur.get("approved_by") if (not approved_by and cur.get("approved_by")) else who
+    cur.update({"approved_by": signer, "updated": now or time.strftime("%Y-%m-%d"),
                 "spread_slippage_bps": spread})
     path.write_text(yaml.safe_dump(cur, sort_keys=False), encoding="utf-8")
     hist = cfg_dir.parent / "state" / "costs_history.jsonl"

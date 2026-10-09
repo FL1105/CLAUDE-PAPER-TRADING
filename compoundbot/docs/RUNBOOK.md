@@ -5,7 +5,8 @@ and Task Scheduler for the nightly job. Nothing here trades real money: the live
 
 ## 1. First run on YOUR machine (this is where real research happens)
 1. `python -m venv .venv && . .venv/bin/activate && make setup && make test`
-2. Real data, either route:
+2. Real data, easiest first:
+   - Yahoo (no keys, UNVERIFIED because it could not be tested from the build sandbox): `python -m bot.cli data --source yahoo --start 2003-01-01`. It uses Yahoo's unofficial chart endpoint for personal research (check their terms); if it fails or `reports/data_quality.md` looks wrong, use CSV instead.
    - CSV (most reliable): put one file per symbol in `data/import/` (`SPY.csv`, `BTC-USD.csv`, plus the cash proxy `BIL.csv`).
      Columns: `date, close`, optionally `open, high, low, volume, adj_close`. Free sources work (download from your broker or data vendor).
    - Alpaca data API: copy `.env.example` to `.env`, add PAPER keys, then verify `src/bot/data/providers.py::AlpacaDataProvider`

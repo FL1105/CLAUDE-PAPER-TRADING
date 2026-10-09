@@ -217,6 +217,9 @@ def run_daily(
             for f in settled:
                 if not f.ref_price:
                     f.ref_price = open_px.get(f.symbol, 0.0)
+            # anything no longer open is done: never report or reconcile it a second time
+            st.pending_ids = [i for i in st.pending_ids
+                              if (broker.get_order(i) is not None and broker.get_order(i).status == "open")]
         elif first_run_of_day and hasattr(broker, "settle"):
             broker.settle(open_px)
         if hasattr(broker, "set_quotes"):
@@ -232,27 +235,29 @@ def run_daily(
             notes.append(f"UNRECONCILED after settle: {[asdict(m) for m in res.mismatches]}")
         ladder = Ladder(risk, auto_rearm=False, level=st.ladder_level,
                         peak=st.ladder_peak or acct.equity, days_in_level=st.ladder_days)
-        start_eq = st.start_of_day_equity if st.last_run_date == run_id else acct.equity
-        if st.last_run_date != run_id:
-            st.start_of_day_equity = acct.equity
-            start_eq = acct.equity
+        if first_run_of_day:  # today's P&L is measured against the previous run's closing equity
+            st.start_of_day_equity = st.last_equity if st.last_equity else acct.equity
+        start_eq = st.start_of_day_equity or acct.equity
         try:
             if kill.is_engaged():
                 res.status, res.notes = "killed", [f"kill switch: {kill.info()}"]
-                return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker)
+                return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker,
+                               completed=False)
             req = [s for s in universe.symbols if s in close.columns]
             latest = {s: close[s].dropna().index.max() for s in req if close[s].notna().any()}
             ok, bad = data_healthy(latest, [s for s in req if close[s].notna().any()], asof, 1,
                                    session_lag)
             if not ok:
                 res.status, res.notes = "data_unhealthy", [f"stale or missing data: {bad}"]
-                return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker)
+                return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker,
+                               completed=False)
             if selected is None:
                 try:
                     selected = load_selected()
                 except (FileNotFoundError, PermissionError) as e:
                     res.status, res.notes = "no_selection", [str(e)]
-                    return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker)
+                    return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker,
+                               completed=False)
             weights, _alloc = compute_targets(close, selected, universe, risk, tail=LIVE_LOOKBACK_ROWS)
             base_row = weights.iloc[-1]
             # the ladder works on broker equity (USD) against its own running peak; once per day
@@ -265,9 +270,9 @@ def run_daily(
                 notes.append("CASH_MODE flag present: all targets scaled to 0")
             if ladder.level == "HALT":
                 res.status = "halted"  # flatten first, then engage the kill switch (below)
-            if daily_loss_exceeded(start_eq, acct.equity, risk):
-                notes.append("daily loss halt: no new risk today")
-                mult = min(mult, 0.0) if acct.equity < start_eq else mult
+            no_new_risk = acct.equity < start_eq and daily_loss_exceeded(start_eq, acct.equity, risk)
+            if no_new_risk:
+                notes.append("daily loss halt: no buys today (sells that reduce risk still go)")
             target = {s: float(base_row.get(s, 0.0)) * mult for s in close.columns}
             res.weights = target
             positions = broker.get_positions()
@@ -276,7 +281,8 @@ def run_daily(
             if first_run_of_day:
                 st.last_mult = mult
             trade_today = is_rebalance_day(asof, freq) or ladder_changed or res.status == "halted"
-            adv = {s: float(panel["volume"][s].dropna().tail(20).mean()) for s in req
+            # panel volume is in SHARES; the order cap is in dollars, so use dollar volume
+            adv = {s: float((panel["volume"][s].loc[:asof] * close[s]).dropna().tail(20).mean()) for s in req
                    if panel.get("volume") is not None and s in panel["volume"]
                    and panel["volume"][s].notna().any()}
             adv = {s: v for s, v in adv.items() if v > 0}
@@ -285,7 +291,7 @@ def run_daily(
             notes += plan_notes
             if not trade_today:
                 notes.append(f"not a {freq} rebalance day: no orders")
-            if res.status == "halted" or (state_dir / "PAUSE_ENTRIES").exists():
+            if res.status == "halted" or no_new_risk or (state_dir / "PAUSE_ENTRIES").exists():
                 orders = [o for o in orders if o.side == "sell"]  # flatten / no new entries
             rep = execute(orders, broker, kill) if orders else ExecReport()
             res.report = rep
@@ -313,22 +319,35 @@ def run_daily(
 
 
 def _finish(res: RunResult, st: RunState, state_dir: Path, runs_dir: Path, run_id: str,
-            close: pd.DataFrame, weights: dict, tag: str, ladder: Ladder, broker: Broker) -> RunResult:
+            close: pd.DataFrame, weights: dict, tag: str, ladder: Ladder, broker: Broker,
+            completed: bool = True) -> RunResult:
+    """completed=False (killed / stale data / no selection): record the attempt but do not mark the day as
+    run, so a re-run after the fix still settles, reconciles and updates the ladder for this day."""
     st.ladder_level, st.ladder_peak, st.ladder_days = ladder.level, ladder.peak, ladder.days_in_level
-    st.last_run_date = run_id
-    st.last_equity = res.equity
+    if completed:
+        st.last_run_date = run_id
+        st.last_equity = res.equity
     st.positions_snapshot = broker.get_positions()
     save_state(state_dir / "state.json", st)
     d = runs_dir / run_id
     d.mkdir(parents=True, exist_ok=True)
     rep = res.report
+    prior = []
+    if (d / "run.json").exists():  # fills settled by an earlier attempt today must not be lost
+        try:
+            prior = json.loads((d / "run.json").read_text(encoding="utf-8")).get("fills", [])
+        except ValueError:
+            prior = []
+    new_fills = [asdict(f) for f in list(res.settled) + [f for f in (rep.fills if rep else [])
+                                                         if f.status != "open"]]
+    seen = {f["client_order_id"] for f in new_fills}
+    merged_fills = new_fills + [f for f in prior if f["client_order_id"] not in seen]
     (d / "run.json").write_text(json.dumps({
         "run_id": run_id, "status": res.status, "tag": tag, "ladder": res.ladder,
         "equity": res.equity, "weights": weights, "notes": res.notes,
         "broker": broker.__class__.__name__, "costs_hash": _costs_hash(),
         "orders": [asdict(o) for o in (rep.planned if rep else [])],
-        "fills": [asdict(f) for f in list(res.settled) + [f for f in (rep.fills if rep else [])
-                                                         if f.status != "open"]],
+        "fills": merged_fills,
         "queued": [asdict(f) for f in (rep.fills if rep else []) if f.status == "open"],
         "mismatches": [asdict(m) for m in res.mismatches],
         "inputs_hash": _inputs_hash(close) if len(close) else "", "git": _git_commit(),

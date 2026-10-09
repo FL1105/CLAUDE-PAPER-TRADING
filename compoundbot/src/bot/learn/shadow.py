@@ -17,7 +17,7 @@ import pandas as pd
 import yaml
 
 from bot.backtest import metrics
-from bot.backtest.portfolio_report import build_portfolio
+from bot.backtest.portfolio_report import build_portfolio_multi
 from bot.config import ResearchBudget
 from bot.monitor.weekly_review import challenger_beats_champion
 
@@ -51,9 +51,10 @@ def evaluate(panel: dict, shadow: dict, selected: dict[str, dict], universe, ris
     start = pd.Timestamp(shadow["data_through"])
     res = {"id": shadow["id"], "data_through": shadow["data_through"]}
     nets = {}
+    champ, *_ = build_portfolio_multi(panel, sel_c, universe, risk, costs, exec_mode, tag, (1.0, 2.0))
+    chall, *_ = build_portfolio_multi(panel, sel_h, universe, risk, costs, exec_mode, tag, (1.0, 2.0))
     for mult in (1.0, 2.0):
-        c, *_ = build_portfolio(panel, sel_c, universe, risk, costs, exec_mode, tag, cost_multiplier=mult)
-        h, *_ = build_portfolio(panel, sel_h, universe, risk, costs, exec_mode, tag, cost_multiplier=mult)
+        c, h = champ[mult], chall[mult]
         nets[mult] = (c.net.loc[start + pd.Timedelta(days=1):], h.net.loc[start + pd.Timedelta(days=1):],
                       c.cash_ret)
     c1, h1, cash = nets[1.0]

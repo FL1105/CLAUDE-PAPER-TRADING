@@ -15,17 +15,26 @@ from bot.portfolio.construct import book_rebalance, combine, sleeve_returns
 from bot.strategies import make_registry, split_universe
 
 
-def build_portfolio(panel: dict, selected: dict[str, dict], universe: Universe, risk: Risk, costs: Costs,
-                    exec_mode: str = "next_open", tag: str = "MEASURED", cost_multiplier: float = 1.0):
+def build_portfolio_multi(panel: dict, selected: dict[str, dict], universe: Universe, risk: Risk, costs: Costs,
+                          exec_mode: str = "next_open", tag: str = "MEASURED",
+                          multipliers: tuple[float, ...] = (1.0,)):
+    """Build sleeves and the combined weights once, then backtest at each cost multiplier."""
     reg = make_registry(load_strategy())
     parts = split_universe(panel["close"], universe)
     sleeves = {n: reg[n].build(panel["close"][parts[reg[n].universe]], p, risk) for n, p in selected.items()}
     weights, alloc = combine(sleeves, panel["close"], universe, risk)
     reb = rebalance_dates(weights.index, book_rebalance(selected, reg))
-    res = run_backtest({**panel, "volume": None}, weights, costs=costs, risk=risk, universe=universe,
-                       rebalance=reb, exec_mode=exec_mode, tag=tag,
-                       cost_multiplier=cost_multiplier)
-    return res, weights, alloc, sleeves
+    results = {m: run_backtest({**panel, "volume": None}, weights, costs=costs, risk=risk, universe=universe,
+                               rebalance=reb, exec_mode=exec_mode, tag=tag, cost_multiplier=m)
+               for m in multipliers}
+    return results, weights, alloc, sleeves
+
+
+def build_portfolio(panel: dict, selected: dict[str, dict], universe: Universe, risk: Risk, costs: Costs,
+                    exec_mode: str = "next_open", tag: str = "MEASURED", cost_multiplier: float = 1.0):
+    results, weights, alloc, sleeves = build_portfolio_multi(
+        panel, selected, universe, risk, costs, exec_mode, tag, (cost_multiplier,))
+    return results[cost_multiplier], weights, alloc, sleeves
 
 
 def portfolio_md(panel: dict, res: BacktestResult, weights: pd.DataFrame, alloc: pd.DataFrame,

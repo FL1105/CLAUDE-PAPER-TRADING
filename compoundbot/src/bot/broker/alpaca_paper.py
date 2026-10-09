@@ -107,6 +107,8 @@ class AlpacaPaperBroker(Broker):
         st = o.get("status", "")
         status = {"filled": "filled", "partially_filled": "partial", "rejected": "rejected",
                   "canceled": "rejected", "expired": "rejected"}.get(st, "open")
+        if status == "rejected" and float(o.get("filled_qty") or 0) > 0:
+            status = "partial"  # cancelled/expired after a partial fill: the filled part is real
         return Fill(o["client_order_id"], o["symbol"], o["side"], float(o.get("filled_qty") or 0),
                     float(o.get("filled_avg_price") or 0), status=status,
                     reason=o.get("reject_reason", "") or st)

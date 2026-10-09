@@ -75,3 +75,22 @@ promote, costs. Docs: docs/LEARNING.md, RUNBOOK 3b. Master prompt gained a learn
 Measured (tests): simulator fills excluded; 3x-worse costs -> bounded increase; decreases refused with few fills; over-budget refused
 with nothing logged; promotion refused without evidence/name and reversible; identical challenger never promotable.
 Unverified: no real broker fills exist, so nothing has actually been learned yet.
+
+## Adversarial review round 1 (high effort over src/): 10 findings + 5 minor, all fixed with regression tests
+1. Daily-loss halt could never fire live (baseline equity was read from the same snapshot) and would have liquidated the book.
+   Now: baseline = previous run's closing equity; response = no buys (sells that reduce risk still go), like the backtest.
+2. `paper` used the newest cached bar as "today", so stale data was never detected and the heartbeat alarm could not trip.
+   Now: asof = last completed NYSE session by wall clock (`last_completed_session`); `--refresh SOURCE` re-fetches first.
+3. `costs --apply` without `--by` applied decreases under an automatic signature. Now refused; unattended increases keep a human signature.
+4. Drift monitor existed but nothing called it. Now wired into `nightly`: writes state/drift.json, `CASH_MODE` on persistent shortfall, alerts.
+5. Early exits (killed / stale / no selection) stamped the day as run and left settled orders pending (double-reported fills, skipped ladder
+   update on rerun). Now: pending ids cleared at settle, early exits do not stamp the day, run.json merges fills from earlier attempts.
+6. Crypto weekend rows turned the whole panel into a 365-day calendar. Now every series is aligned to NYSE sessions.
+7. Fixed fees were not scaled in x2 cost stress runs. Fixed.
+8. ADV cap compared share volume with dollars. Now uses volume x close (synthetic volume is shares too).
+9. Alpaca cancelled/expired-after-partial-fill orders lost their filled quantity (now `partial`); crypto bars use the crypto endpoint;
+   one failing symbol no longer aborts the whole data fetch.
+10. Strategy weights were built twice (x1 and x2 costs); now built once. Shadow evaluation builds each book once.
+Minor: smoothed one-sided paired-bootstrap p-value, proposal values must be finite/positive/integer-typed, zero-length walk-forward and
+holdout windows rejected, proposals that crash after spending budget are closed, naive datetimes read in the schedule timezone.
+Added: Yahoo Finance data provider (UNVERIFIED, mocked tests) so real data needs no manual CSV collection.

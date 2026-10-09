@@ -51,6 +51,10 @@ def run_cycle(panel: dict, tag: str, data_id: str, universe, risk: Risk, costs, 
         except BudgetExceeded as e:
             entry["result"] = f"deferred (stays queued): {e}"
             continue
+        except Exception as e:  # noqa: BLE001  (budget may already be spent: close it so the queue cannot jam)
+            entry["result"] = f"error during research (budget already spent): {type(e).__name__}: {e}"
+            mark_evaluated(queue_path, pid, "error")
+            continue
         oc = res["outcomes"].get(name)
         if oc is None:
             entry["result"] = "no out-of-sample window"

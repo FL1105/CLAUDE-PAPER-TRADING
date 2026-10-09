@@ -91,7 +91,8 @@ def paired_bootstrap_diff(a: pd.Series, b: pd.Series, n_boot: int = 1000, block:
 
     d_obs = (f(xa[None, :]) - f(xb[None, :]))[0]
     d = f(xa[idx]) - f(xb[idx])
-    p = float((d - d.mean() <= -d_obs).mean())  # null: shift to zero mean
+    # one-sided: how often does a zero-mean (centred) bootstrap difference reach the observed one?
+    p = float((np.sum((d - d.mean()) >= d_obs) + 1) / (len(d) + 1))
     return {"diff": float(d_obs), "ci": (float(np.quantile(d, 0.025)), float(np.quantile(d, 0.975))),
             "p_value": p}
 

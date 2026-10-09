@@ -20,13 +20,15 @@ def summary(root: Path) -> dict:
     state_p = root / "state" / "state.json"
     state = json.loads(state_p.read_text(encoding="utf-8")) if state_p.exists() else {}
     paused = (root / "state" / "PAUSE_ENTRIES").exists()
+    dp = root / "state" / "drift.json"
+    drift = json.loads(dp.read_text(encoding="utf-8")) if dp.exists() else None
     eq = runs["equity"].astype(float) if len(runs) else pd.Series(dtype=float)
     dd = float(1 - eq.iloc[-1] / eq.cummax().iloc[-1]) if len(eq) else 0.0
     return {
         "tag": last.get("tag", "none"), "last_run": last.get("run_id"), "status": last.get("status"),
         "equity": float(eq.iloc[-1]) if len(eq) else None, "drawdown": dd,
         "ladder": state.get("ladder_level", "FULL"), "kill_switch": ks.info(), "paused": paused,
-        "cash_mode": (root / "state" / "CASH_MODE").exists(), "n_runs": int(len(runs)),
+        "cash_mode": (root / "state" / "CASH_MODE").exists(), "drift": drift, "n_runs": int(len(runs)),
         "notes": last.get("notes", []), "inputs_hash": last.get("inputs_hash"),
         "heartbeat": (root / "state" / "heartbeat").read_text() if (root / "state" / "heartbeat").exists() else None,
     }

@@ -61,3 +61,34 @@ def check_drift(paper: pd.Series, replay: pd.Series | None, expected_sharpe: flo
         action = "alert" if action == "ok" else action
         reasons.append(f"tracking error {te:.1f} bps > {te_limit_bps}")
     return DriftStatus(action, reasons, run, vol_ratio, te)
+
+
+MIN_RUNS_FOR_DRIFT = 61  # a 60-day rolling window needs 61 equity points
+
+
+def evaluate_runs(runs: pd.DataFrame, replay: pd.Series | None, expected_sharpe: float, target_vol: float,
+                  window: int = 60) -> dict:
+    """Drift status from the paper-run equity history. Returns a JSON-friendly dict."""
+    if runs is None or runs.empty or len(runs) < MIN_RUNS_FOR_DRIFT:
+        return {"action": "insufficient", "reasons": [f"need {MIN_RUNS_FOR_DRIFT} runs, have "
+                                                      f"{0 if runs is None else len(runs)}"],
+                "days_below_band": 0, "vol_ratio": None, "tracking_error_bps": None}
+    ret = runs["equity"].astype(float).pct_change().dropna()
+    st = check_drift(ret, replay, expected_sharpe, target_vol, window)
+    return {"action": st.action, "reasons": st.reasons, "days_below_band": st.days_below_band,
+            "vol_ratio": None if not np.isfinite(st.vol_ratio) else st.vol_ratio,
+            "tracking_error_bps": None if not np.isfinite(st.tracking_error_bps) else st.tracking_error_bps}
+
+
+def apply_action(status: dict, state_dir, alert_fn=None) -> None:
+    """Write state/drift.json; on action 'cash' create state/CASH_MODE (only a person removes it)."""
+    import json
+    from pathlib import Path
+
+    state_dir = Path(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "drift.json").write_text(json.dumps(status, indent=2), encoding="utf-8")
+    if status["action"] == "cash":
+        (state_dir / "CASH_MODE").write_text("; ".join(status["reasons"]), encoding="utf-8")
+    if status["action"] in ("cash", "alert") and alert_fn:
+        alert_fn(f"drift {status['action']}: {'; '.join(status['reasons'])}")

@@ -121,7 +121,7 @@ def run_backtest(
             eo = 1.0 + float((cur * g1).sum())
             drift = cur * (1 + g1) / eo
             new, delta, cfrac, n_ord = _trade(drift, desired, do_reb, risk, costs, side_rate,
-                                              eo * equity * capital)
+                                              eo * equity * capital, cost_multiplier)
             w_after = _after_cost(new, cfrac)
             g_net = 1 + float((w_after * g2).sum()) + (1 - w_after.sum()) * cr
             g_gross = 1 + float((new * g2).sum()) + (1 - new.sum()) * cr
@@ -133,7 +133,7 @@ def run_backtest(
             e_c = 1.0 + ret_g
             drift = cur * (1 + r_c) / e_c
             new, delta, cfrac, n_ord = _trade(drift, desired, do_reb, risk, costs, side_rate,
-                                              e_c * equity * capital)
+                                              e_c * equity * capital, cost_multiplier)
             ret_n = e_c * (1 - cfrac) - 1
             cur = _after_cost(new, cfrac)
         gross[d], net[d], cost_s[d] = ret_g, ret_n, ret_g - ret_n
@@ -153,7 +153,7 @@ def run_backtest(
     return out
 
 
-def _trade(drift, desired, do_reb, risk: Risk, costs: Costs, side_rate, equity_usd, *_unused):
+def _trade(drift, desired, do_reb, risk: Risk, costs: Costs, side_rate, equity_usd, cost_multiplier=1.0):
     """Apply no-trade band and minimum order size; return new weights, deltas, cost frac, orders."""
     if not do_reb:
         return drift.copy(), np.zeros_like(drift), 0.0, 0
@@ -168,7 +168,7 @@ def _trade(drift, desired, do_reb, risk: Risk, costs: Costs, side_rate, equity_u
     if gross > risk.gross_exposure_max + 1e-9:
         new = new * (risk.gross_exposure_max / gross)
         delta = new - drift
-    cfrac, n_ord = trade_cost_fraction(delta, side_rate, max(equity_usd, 1e-9), costs)
+    cfrac, n_ord = trade_cost_fraction(delta, side_rate, max(equity_usd, 1e-9), costs, cost_multiplier)
     return new, delta, cfrac, n_ord
 
 
