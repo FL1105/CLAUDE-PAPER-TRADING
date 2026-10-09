@@ -32,7 +32,7 @@ markers = ["slow: larger synthetic acceptance runs (run with -m slow)"]
 pythonpath = ["src"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py311"
 src = ["src", "tests"]
 

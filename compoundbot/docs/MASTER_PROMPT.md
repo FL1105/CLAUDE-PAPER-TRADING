@@ -14,7 +14,7 @@ You (Claude Code) do the whole build yourself, step by step, without waiting for
 3. Turnover is a cost line. Example: 3 bps per side and a book that turns over 10x per year (each turn = one sell + one buy, so 2 sides) costs 10 x 2 x 3 bps = 0.6%/yr. Higher turnover is allowed only when item 1 holds with margin.
 4. Volatility drag: geometric growth g ~ mu - sigma^2/2. With mu = 12%: sigma 20% gives g = 10%, sigma 10% gives g = 11.5%. Caveat: mu is not free. Cutting volatility by holding more cash also cuts mu. Volatility targeting raises Sharpe and cuts drawdown only if the signals carry real edge; it does not turn a zero-edge book into a profitable one. Always compare against a vol-targeted buy-and-hold baseline to isolate the signal's contribution.
 5. Drawdown asymmetry: a loss of d needs a gain of d/(1-d): -10% needs +11.1%, -20% needs +25%, -33% needs +50%, -50% needs +100%.
-6. Sharpe is hard to prove. SE of an annualised Sharpe SR over T years is about sqrt((1 + SR^2/2)/T). For SR=1, one-sided 95% (z=1.645) needs T ~ 4 years, two-sided 95% (z=1.96) needs ~6 years. A 60-90 day paper run (SE ~ 1.7+) cannot prove an edge. So: the EDGE is argued from walk-forward history plus a frozen holdout; the PAPER period proves the implementation matches the backtest (fills, costs, bugs), not the edge.
+6. Sharpe is hard to prove. With daily data the SE of an annualised Sharpe over T years is about 1/sqrt(T) (the SR^2/2 correction is divided by 252 when annualised and is negligible). For SR=1 you need T ~ 2.7 years for one-sided 95% (z=1.645) and ~3.8 years for two-sided 95% (z=1.96); for SR=0.5 it is 4x longer (11 to 15 years). A 60-90 day paper run (SE ~ 1.7+) cannot prove an edge. So: the EDGE is argued from walk-forward history plus a frozen holdout; the PAPER period proves the implementation matches the backtest (fills, costs, bugs), not the edge.
 7. How much history exists is limited. Most of the universe's ETFs launched 2002-2007, so real history is about 17-20 years with maybe 3-5 independent macro regimes. Do not claim 'decades'. Treat every result as low-power and say so. Higher-turnover sleeves get more observations, but their edge must be re-checked at x2 costs.
 8. Realistic priors, to be tested not assumed: diversified trend / momentum / risk-parity style portfolios have historically shown after-cost Sharpe ratios of roughly 0.4-0.9. Above ~1.5 in a backtest means bug or leak until proven otherwise.
 9. Win rate is irrelevant. Expectancy = p*W - (1-p)*L - cost is what matters. High-win-rate, small-win strategies (short-term mean reversion) hide fat left tails: always report the worst loss and loss distribution beside the win rate.
@@ -219,7 +219,7 @@ data_health: block all orders if any required symbol's latest bar is stale or fa
 </risk_layer>
 
 <evidence_gate>
-A Sharpe-1 edge needs ~4-6 years to prove, so the gate separates EDGE evidence (history) from IMPLEMENTATION evidence (paper). All must pass. All numbers must come from real data (MEASURED); SYNTHETIC runs can only test the gate logic.
+A Sharpe-1 edge needs ~3-4 years of clean data to prove, a Sharpe-0.5 edge 11-15 years, so the gate separates EDGE evidence (history) from IMPLEMENTATION evidence (paper). All must pass. All numbers must come from real data (MEASURED); SYNTHETIC runs can only test the gate logic.
 
 EDGE (walk-forward out-of-sample + frozen holdout):
 E1. Net Sharpe 95% block-bootstrap lower bound > 0, and Deflated Sharpe >= 0.90 given trial count and Sharpe variance.
