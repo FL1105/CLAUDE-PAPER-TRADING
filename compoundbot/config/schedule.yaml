@@ -1,0 +1,4 @@
+timezone: America/New_York
+decision_time: "16:10"
+heartbeat_file: state/heartbeat
+max_heartbeat_age_hours: 30

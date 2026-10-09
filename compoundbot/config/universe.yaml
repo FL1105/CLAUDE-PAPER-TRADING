@@ -1,0 +1,16 @@
+# symbol, asset class, inception (do not backtest before it). Inception dates: ESTIMATED, verify.
+assets:
+  - {symbol: SPY, cls: equity, inception: "1993-01-29"}
+  - {symbol: QQQ, cls: equity, inception: "1999-03-10"}
+  - {symbol: IWM, cls: equity, inception: "2000-05-26"}
+  - {symbol: EFA, cls: equity, inception: "2001-08-17"}
+  - {symbol: EEM, cls: equity, inception: "2003-04-14"}
+  - {symbol: TLT, cls: bond, inception: "2002-07-30"}
+  - {symbol: IEF, cls: bond, inception: "2002-07-30"}
+  - {symbol: LQD, cls: bond, inception: "2002-07-30"}
+  - {symbol: GLD, cls: commodity, inception: "2004-11-18"}
+  - {symbol: DBC, cls: commodity, inception: "2006-02-03"}
+  - {symbol: VNQ, cls: reit, inception: "2004-09-29"}
+  - {symbol: BTC/USD, cls: crypto, inception: "2015-01-01"}
+  - {symbol: ETH/USD, cls: crypto, inception: "2017-01-01"}
+cash_proxy: {symbol: BIL, inception: "2007-05-30"}

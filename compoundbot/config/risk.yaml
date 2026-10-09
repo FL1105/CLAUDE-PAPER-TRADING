@@ -1,0 +1,18 @@
+# HARD LIMITS. Hash-checked at startup (docs/risk_ack.txt). No job or model may edit this file.
+max_weight_per_asset: 0.25
+crypto_sleeve_max: 0.10
+gross_exposure_max: 1.0
+target_vol_annual: 0.10
+vol_window: 60
+drawdown_halve_at: 0.08
+drawdown_cash_at: 0.12
+drawdown_halt_at: 0.15
+rerisk_recover_within: 0.04
+rerisk_min_days: 40
+halfrisk_return_days: 20
+backtest_halt_rearm_days: 60
+daily_loss_halt: 0.03
+order_cap_over_max_weight: 0.05
+order_cap_adv_frac: 0.01
+price_collar: 0.03
+no_trade_band: 0.01

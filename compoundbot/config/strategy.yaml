@@ -1,0 +1,23 @@
+# Pre-registered grids. Changing them after seeing results is a rule violation (log in DECISIONS.md).
+trend:
+  sma: [100, 150, 200, 250]
+  vol_window: [40, 60, 90]
+  rebalance: weekly
+momentum_rotation:
+  lookback_months: [6, 9, 12]
+  top_n: [3, 4, 5]
+  rebalance: monthly
+mean_reversion:
+  rsi_entry: [5, 10, 15]
+  rsi_exit: [60, 70]
+  max_hold_days: [5]
+crypto_trend:
+  sma: [100, 200]
+  vol_cap: [0.8, 1.2]
+  rebalance: weekly
+walkforward:
+  min_train_years: 4
+  test_years: 1
+  holdout_years: 2
+  exec_mode: next_open
+  seed: 7

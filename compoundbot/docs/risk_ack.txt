@@ -1,0 +1,1 @@
+f55616e11ee5a07327530e9535a5838ccf9506ab4b0436391176df7d517a3727  # initial defaults acknowledged by the build; OPERATOR: review config/risk.yaml and re-sign (sha256sum config/risk.yaml)

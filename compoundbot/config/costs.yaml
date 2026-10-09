@@ -1,0 +1,7 @@
+# Per-side costs in bps of traded notional. ESTIMATED, to be replaced by measured broker fills.
+per_side_bps: {equity: 3.0, bond: 3.0, commodity: 4.0, reit: 3.0, crypto: 25.0}
+spread_slippage_bps: {equity: 1.0, bond: 1.5, commodity: 2.0, reit: 1.5, crypto: 10.0}
+commission_usd_per_order: 0.0
+fixed_fee_usd_per_order: 0.0
+min_order_usd: 25.0
+start_capital_usd: 10000.0
