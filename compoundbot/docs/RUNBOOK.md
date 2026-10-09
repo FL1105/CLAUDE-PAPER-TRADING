@@ -41,6 +41,18 @@ and Task Scheduler for the nightly job. Nothing here trades real money: the live
 | Restore from backup | Back up `state/`, `runs/`, `reports/`, `config/` and `docs/risk_ack.txt`. Restore the folders, run `python -m bot.cli check`, then `nightly`. |
 | Changed `config/risk.yaml` | You must re-sign: `sha256sum config/risk.yaml` into `docs/risk_ack.txt`. Nothing automated may do this. |
 
+## 3b. Learning loop (details in docs/LEARNING.md)
+| Task | Command |
+|---|---|
+| See research budget left this quarter | `python -m bot.cli budget` |
+| Learn real costs from broker fills (increases only) | `python -m bot.cli costs --auto` (also runs inside `nightly`) |
+| Apply a cost DECREASE after reviewing `reports/costs_calibration.md` | `python -m bot.cli costs --apply --by "<you>"` |
+| How wrong can my cost estimate be? | `python -m bot.cli costs --breakeven` |
+| Queue ideas | `python -m bot.cli propose ideas.json` |
+| Monthly cycle | `python -m bot.cli learn` then read `reports/learning_cycle_<date>.md` |
+| Weekly challenger check | `python -m bot.cli shadow` |
+| Adopt a proven challenger | `python -m bot.cli promote <id> --approve "<you>"` (refused unless proven) |
+
 ## 4. Go-live checklist (NOT implemented; for GATE 3)
 A real-money adapter does not exist on purpose. Before anyone writes one, all of this must hold, and the adapter
 must satisfy it in code:

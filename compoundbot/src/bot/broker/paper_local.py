@@ -96,7 +96,7 @@ class PaperLocalBroker(Broker):
             self.positions[order.symbol] = have - qty
         self.cost_paid += abs(qty * (fill_px - px)) + fee
         f = Fill(order.client_order_id, order.symbol, order.side, qty, fill_px,
-                 cost_usd=abs(qty * (fill_px - px)) + fee)
+                 cost_usd=abs(qty * (fill_px - px)) + fee, ref_price=px, fee_usd=fee)
         self.fills[order.client_order_id] = f
         return f
 

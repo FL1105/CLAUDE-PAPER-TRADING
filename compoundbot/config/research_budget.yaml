@@ -1,0 +1,12 @@
+# Pre-registered research budget. Every extra strategy variant tested on the same history spends
+# some of the statistical evidence, so the number of NEW variants per calendar quarter is capped and
+# the Deflated-Sharpe bar rises as the quarter's budget is used. Changing this file after seeing
+# results is a rule violation (log it in docs/DECISIONS.md).
+new_combos_per_quarter: 24      # distinct (strategy, params) not seen before; the founding grid is exempt
+dsr_min_base: 0.90
+dsr_step: 0.02                  # added to the DSR bar for every `dsr_step_every` new combos used this quarter
+dsr_step_every: 8
+dsr_min_cap: 0.99
+min_shadow_days: 126            # a challenger must beat the champion on this many NEW sessions
+shadow_n_boot: 1000
+max_proposals_per_cycle: 3

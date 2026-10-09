@@ -6,6 +6,7 @@ the evidence gate, live trading, or any file path. Queued items must be run thro
 walk-forward harness and need a challenger-beats-champion test (below) before use."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -41,7 +42,8 @@ def validate_proposal(p: dict, registry: dict) -> dict:
             raise ProposalRejected(f"{k}: values must be a list of numbers")
         if len(v) > 5:
             raise ProposalRejected(f"{k}: too many values (max 5)")
-    return {"strategy": name, "grid": grid, "rationale": str(p.get("rationale", ""))[:500]}
+    pid = hashlib.sha1(json.dumps([name, grid], sort_keys=True).encode()).hexdigest()[:8]
+    return {"id": pid, "strategy": name, "grid": grid, "rationale": str(p.get("rationale", ""))[:500]}
 
 
 def queue_hypotheses(proposals: list[dict], registry: dict, queue_path: Path) -> list[dict]:
@@ -49,15 +51,37 @@ def queue_hypotheses(proposals: list[dict], registry: dict, queue_path: Path) ->
     but are recorded in the returned list's absence and in the queue file's `rejected` entries."""
     accepted = []
     queue_path.parent.mkdir(parents=True, exist_ok=True)
+    seen = {r["id"] for r in read_queue(queue_path) if "id" in r}
     with open(queue_path, "a", encoding="utf-8") as f:
         for p in proposals[:MAX_PROPOSALS_PER_WEEK]:
             try:
                 ok = validate_proposal(p, registry)
+                if ok["id"] in seen:  # the same idea is never queued twice
+                    continue
+                seen.add(ok["id"])
                 accepted.append(ok)
                 f.write(json.dumps({"status": "queued", **ok}) + "\n")
             except ProposalRejected as e:
                 f.write(json.dumps({"status": "rejected", "reason": str(e)}) + "\n")
     return accepted
+
+
+def read_queue(queue_path: Path) -> list[dict]:
+    if not Path(queue_path).exists():
+        return []
+    return [json.loads(x) for x in Path(queue_path).read_text(encoding="utf-8").splitlines() if x.strip()]
+
+
+def pending_proposals(queue_path: Path) -> list[dict]:
+    """Queued proposals that have no later 'evaluated' line."""
+    recs = read_queue(queue_path)
+    done = {r["id"] for r in recs if r.get("status") == "evaluated"}
+    return [r for r in recs if r.get("status") == "queued" and r.get("id") not in done]
+
+
+def mark_evaluated(queue_path: Path, pid: str, outcome: str) -> None:
+    with open(queue_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"status": "evaluated", "id": pid, "outcome": outcome}) + "\n")
 
 
 def challenger_beats_champion(champ_x1: pd.Series, chall_x1: pd.Series, champ_x2: pd.Series,

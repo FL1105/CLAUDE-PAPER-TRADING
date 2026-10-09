@@ -16,14 +16,15 @@ from bot.strategies import make_registry, split_universe
 
 
 def build_portfolio(panel: dict, selected: dict[str, dict], universe: Universe, risk: Risk, costs: Costs,
-                    exec_mode: str = "next_open", tag: str = "MEASURED"):
+                    exec_mode: str = "next_open", tag: str = "MEASURED", cost_multiplier: float = 1.0):
     reg = make_registry(load_strategy())
     parts = split_universe(panel["close"], universe)
     sleeves = {n: reg[n].build(panel["close"][parts[reg[n].universe]], p, risk) for n, p in selected.items()}
     weights, alloc = combine(sleeves, panel["close"], universe, risk)
     reb = rebalance_dates(weights.index, book_rebalance(selected, reg))
     res = run_backtest({**panel, "volume": None}, weights, costs=costs, risk=risk, universe=universe,
-                       rebalance=reb, exec_mode=exec_mode, tag=tag)
+                       rebalance=reb, exec_mode=exec_mode, tag=tag,
+                       cost_multiplier=cost_multiplier)
     return res, weights, alloc, sleeves
 
 

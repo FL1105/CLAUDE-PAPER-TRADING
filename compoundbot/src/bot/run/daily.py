@@ -131,6 +131,15 @@ def _git_commit() -> str:
         return "unknown"
 
 
+def _costs_hash() -> str:
+    parts = [CFG / "costs.yaml", CFG / "costs_learned.yaml"]
+    h = hashlib.sha256()
+    for p in parts:
+        if p.exists():
+            h.update(p.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:12]
+
+
 def _inputs_hash(close: pd.DataFrame) -> str:
     return hashlib.sha256(close.tail(300).round(6).to_csv().encode()).hexdigest()[:16]
 
@@ -205,6 +214,9 @@ def run_daily(
                 broker.settle(open_px)  # simulator: yesterday's queued orders fill at today's open
             settled = [f for f in (broker.get_order(i) for i in st.pending_ids) if f is not None
                        and f.status != "open"]
+            for f in settled:
+                if not f.ref_price:
+                    f.ref_price = open_px.get(f.symbol, 0.0)
         elif first_run_of_day and hasattr(broker, "settle"):
             broker.settle(open_px)
         if hasattr(broker, "set_quotes"):
@@ -282,6 +294,9 @@ def run_daily(
             # immediate fills (execution="immediate" brokers) must reconcile right away; queued ones
             # (status "open") are checked against the snapshot at the next session's settle step
             immediate = [f for f in rep.fills if f.status != "open"]
+            for f in immediate:
+                if not f.ref_price:
+                    f.ref_price = px.get(f.symbol, 0.0)
             res.mismatches += reconcile(expected_after(positions, immediate), broker.get_positions())
             st.pending_ids = [f.client_order_id for f in rep.fills if f.status == "open"] + \
                 [i for i in st.pending_ids if broker.get_order(i) and broker.get_order(i).status == "open"
@@ -310,6 +325,7 @@ def _finish(res: RunResult, st: RunState, state_dir: Path, runs_dir: Path, run_i
     (d / "run.json").write_text(json.dumps({
         "run_id": run_id, "status": res.status, "tag": tag, "ladder": res.ladder,
         "equity": res.equity, "weights": weights, "notes": res.notes,
+        "broker": broker.__class__.__name__, "costs_hash": _costs_hash(),
         "orders": [asdict(o) for o in (rep.planned if rep else [])],
         "fills": [asdict(f) for f in list(res.settled) + [f for f in (rep.fills if rep else [])
                                                          if f.status != "open"]],

@@ -39,19 +39,25 @@ def log_trial(path: Path, record: dict) -> None:
 
 
 def trial_counts(path: Path) -> tuple[int, float]:
-    """(number of distinct trials, variance of annual Sharpe across them) for deflated Sharpe."""
+    """(number of distinct combinations ever tried, variance of annual Sharpe across them) for deflated
+    Sharpe. A combination counts once however many data windows it was evaluated on; its most recent
+    Sharpe is used for the variance."""
     if not path.exists():
         return 1, 0.25
-    seen: dict[str, float] = {}
+    combos: set[str] = set()
+    sharpe: dict[str, float] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         r = json.loads(line)
-        if r.get("stage") == "trial":
-            seen[f'{r["strategy"]}|{json.dumps(r["params"], sort_keys=True)}|{r.get("data_id", "")}'] = r["sharpe"]
-    if len(seen) < 2:
-        return max(len(seen), 1), 0.25
-    return len(seen), max(float(np.var(list(seen.values()), ddof=1)), 1e-4)
+        if r.get("stage") in ("trial", "founding", "charge"):
+            k = f'{r["strategy"]}|{json.dumps(r["params"], sort_keys=True)}'
+            combos.add(k)
+            if r.get("stage") == "trial":
+                sharpe[k] = r["sharpe"]
+    if len(sharpe) < 2:
+        return max(len(combos), 1), 0.25
+    return len(combos), max(float(np.var(list(sharpe.values()), ddof=1)), 1e-4)
 
 
 # ----------------------------------------------------------------------------- data split
@@ -186,7 +192,7 @@ def placebo_sharpes(weights: pd.DataFrame, sub_panel: dict, spec: Spec, universe
 
 def evaluate(outcome: StrategyOutcome, spec: Spec, baselines: dict[str, BacktestResult],
              cash: pd.Series, risk: Risk, n_trials: int, sr_var: float, cover_min: float,
-             n_boot: int, seed: int, dd_limit_extra: float = 0.05) -> None:
+             n_boot: int, seed: int, dd_limit_extra: float = 0.05, dsr_min: float = 0.90) -> None:
     r = outcome.oos_net
     sr = metrics.sharpe(r, cash)
     lo, hi = stats.bootstrap_sharpe_ci(r, n_boot=n_boot, seed=seed, cash=cash)
@@ -197,8 +203,8 @@ def evaluate(outcome: StrategyOutcome, spec: Spec, baselines: dict[str, Backtest
         crit.append({"id": cid, "desc": desc, "value": value, "threshold": thr,
                      "pass": bool(ok), "ci": ci, "n": n})
 
-    add("E1", "Net Sharpe 95% CI lower bound > 0 and Deflated Sharpe >= 0.90",
-        f"SR {sr:.2f}, lo {lo:.2f}, DSR {dsr:.2f}", "lo>0 & DSR>=0.90", lo > 0 and dsr >= 0.90,
+    add("E1", f"Net Sharpe 95% CI lower bound > 0 and Deflated Sharpe >= {dsr_min:.2f}",
+        f"SR {sr:.2f}, lo {lo:.2f}, DSR {dsr:.2f}", f"lo>0 & DSR>={dsr_min:.2f}", lo > 0 and dsr >= dsr_min,
         (lo, hi), len(r))
     # E2: beat the best risk-adjusted baseline (incl. vol-targeted) and the shuffled-signal placebo
     base_sr = {n: metrics.sharpe(b.net.reindex(r.index).dropna(), cash) for n, b in baselines.items()
@@ -260,7 +266,8 @@ def evaluate(outcome: StrategyOutcome, spec: Spec, baselines: dict[str, Backtest
 
 def research(panel: dict, universe: Universe, risk: Risk, costs: Costs, registry: dict[str, Spec],
              wf_cfg: dict, exp_path: Path, tag: str, data_id: str = "", n_placebo: int = 200,
-             n_boot: int = 500, cover_min: float = 2.0, only: list[str] | None = None) -> dict:
+             n_boot: int = 500, cover_min: float = 2.0, only: list[str] | None = None,
+             budget=None, now=None) -> dict:
     """Run the full research procedure on the DEVELOPMENT sample (holdout already removed)."""
     from bot.backtest.baselines import run_baselines
 
@@ -268,6 +275,14 @@ def research(panel: dict, universe: Universe, risk: Risk, costs: Costs, registry
     cash = panel["cash"].iloc[:, 0].pct_change().fillna(0.0)
     base = run_baselines(panel, universe, risk, costs, tag=tag, exec_mode=exec_mode)
     out: dict[str, StrategyOutcome] = {}
+    # budget: account for every combination BEFORE evaluating anything (all-or-nothing per call)
+    if budget is not None:
+        for name, spec in registry.items():
+            if not only or name in only:
+                budget.reserve(name, spec.combos(), data_id, now, dry_run=True)
+        for name, spec in registry.items():
+            if not only or name in only:
+                budget.reserve(name, spec.combos(), data_id, now)
     for name, spec in registry.items():
         if only and name not in only:
             continue
@@ -292,9 +307,12 @@ def research(panel: dict, universe: Universe, risk: Risk, costs: Costs, registry
             n_placebo, seed) if n_placebo else np.array([])
         out[name] = oc
     n_trials, sr_var = trial_counts(exp_path)
+    dsr_min = budget.dsr_min(now) if budget is not None else 0.90
     for name, oc in out.items():
-        evaluate(oc, registry[name], base, cash, risk, n_trials, sr_var, cover_min, n_boot, seed)
+        evaluate(oc, registry[name], base, cash, risk, n_trials, sr_var, cover_min, n_boot, seed,
+                 dsr_min=dsr_min)
         log_trial(exp_path, {"stage": "verdict", "strategy": name, "verdict": oc.verdict,
                              "params": oc.final_params, "tag": tag, "data_id": data_id})
     return {"outcomes": out, "baselines": base, "n_trials": n_trials, "sr_var": sr_var,
-            "cash": cash, "tag": tag}
+            "cash": cash, "tag": tag, "dsr_min": dsr_min}
+

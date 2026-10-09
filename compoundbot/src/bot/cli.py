@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import pandas as pd
 import yaml
@@ -55,8 +56,14 @@ def cmd_research(a) -> int:
     exec_mode = cfg.walkforward["exec_mode"]
     exp = ROOT / "runs" / f"experiments_{tag}.jsonl"
     reg = make_registry(cfg)
-    res = research(dev, u, risk, costs, reg, cfg.walkforward, exp, tag, did, n_placebo=a.placebo,
-                   n_boot=a.boot, cover_min=2.0, only=a.only.split(",") if a.only else None)
+    from bot.learn.budget import Budget, BudgetExceeded
+    budget = Budget(C.load_budget(), exp)
+    try:
+        res = research(dev, u, risk, costs, reg, cfg.walkforward, exp, tag, did, n_placebo=a.placebo,
+                       n_boot=a.boot, cover_min=2.0, only=a.only.split(",") if a.only else None, budget=budget)
+    except BudgetExceeded as e:
+        print(f"Research budget: {e}")
+        return 1
     cash = res["cash"]
     baselines_md(res["baselines"], cash, tag, costs, exec_mode, REPORTS / "baselines.md")
     note = f"Holdout ({cfg.walkforward['holdout_years']}y from {cut.date()}) was NOT used."
@@ -68,6 +75,111 @@ def cmd_research(a) -> int:
     for n, o in res["outcomes"].items():
         print(f"{n:20s} {o['verdict'] if isinstance(o, dict) else o.verdict}  {o.final_params}")
     print(f"reports written to {REPORTS} ({tag}). Gate 1: review reports/research_v1.md, then `select`.")
+    return 0
+
+
+def _exp_path(tag: str) -> Path:
+    return ROOT / "runs" / f"experiments_{tag}.jsonl"
+
+
+def _cache_tag() -> str:
+    _, meta = P.load_cached_panel()
+    return meta["tag"]
+
+
+def cmd_budget(a) -> int:
+    from bot.learn.budget import Budget
+    b = Budget(C.load_budget(), _exp_path(_cache_tag()))
+    print(json.dumps(b.status(), indent=2))
+    return 0
+
+
+def cmd_propose(a) -> int:
+    from bot.monitor.weekly_review import queue_hypotheses
+    props = json.loads(Path(a.file).read_text(encoding="utf-8"))
+    acc = queue_hypotheses(props if isinstance(props, list) else [props], make_registry(C.load_strategy()),
+                           REPORTS / "hypotheses_queue.jsonl")
+    print(f"queued {len(acc)} of {len(props)} (max 3 per call; duplicates and invalid ones are dropped, "
+          f"see reports/hypotheses_queue.jsonl)")
+    return 0
+
+
+def cmd_learn(a) -> int:
+    from bot.learn.cycle import run_cycle
+    u, risk, costs = C.load_universe(), C.load_risk(), C.load_costs()
+    panel, meta = P.load_cached_panel(u)
+    cfg = C.load_strategy()
+    sel = _selected_or_exit(a)
+    tag = meta["tag"]
+    out = run_cycle(panel, tag, meta.get("data_id", ""), u, risk, costs, cfg, C.load_budget(), _exp_path(tag),
+                    REPORTS / "hypotheses_queue.jsonl", ROOT / "state" / "shadows.json", sel,
+                    REPORTS / f"learning_cycle_{pd.Timestamp.today().date()}.md",
+                    n_placebo=a.placebo, n_boot=a.boot)
+    for e in out["log"]:
+        print(f"{e['id']} {e['strategy']} {e['grid']}: {e['result']}")
+    print(f"budget: {out['after']}")
+    return 0
+
+
+def _shadow_evals(a):
+    from bot.learn import shadow as S
+    u, risk, costs = C.load_universe(), C.load_risk(), C.load_costs()
+    panel, meta = P.load_cached_panel(u)
+    cfg = C.load_strategy()
+    sel = _selected_or_exit(a)
+    items = [i for i in S.load_shadows(ROOT / "state" / "shadows.json") if i["status"] == "shadowing"]
+    return [(i, S.evaluate(panel, i, sel, u, risk, costs, cfg.walkforward["exec_mode"], C.load_budget(),
+                           meta["tag"])) for i in items]
+
+
+def cmd_shadow(a) -> int:
+    evals = _shadow_evals(a)
+    if not evals:
+        print("no shadow challengers")
+    for i, ev in evals:
+        print(f"{i['id']}: {ev['status']} ({ev.get('new_sessions', 0)}/{ev['needed'] if 'needed' in ev else '?'} "
+              f"new sessions) {ev.get('reason', '')}")
+        if "challenger_sharpe" in ev:
+            print(f"   Sharpe champion {ev['champion_sharpe']:.2f} vs challenger {ev['challenger_sharpe']:.2f}; "
+                  f"max DD {ev['champion_max_dd']:.1%} vs {ev['challenger_max_dd']:.1%}")
+    return 0
+
+
+def cmd_promote(a) -> int:
+    from bot.learn import shadow as S
+    evals = dict((i["id"], ev) for i, ev in _shadow_evals(a))
+    if a.id not in evals:
+        print(f"{a.id} is not an active shadow challenger")
+        return 1
+    try:
+        rec = S.promote(a.id, a.approve, ROOT / "state" / "shadows.json", C.CFG / "selected.yaml", evals[a.id],
+                        ROOT / "state" / "selected_backups", ROOT / "state" / "promotions.jsonl")
+    except PermissionError as e:
+        print(f"REFUSED: {e}")
+        return 1
+    print(f"promoted {a.id}: {rec['old']} -> {rec['new']}; previous selection saved to {rec['backup']}")
+    return 0
+
+
+def cmd_costs(a) -> int:
+    from bot.learn import costs as LC
+    u, costs = C.load_universe(), C.load_costs()
+    df = LC.collect_fills(ROOT / "runs", u, include_sim=a.include_sim)
+    ests = LC.estimate(df, costs)
+    be = None
+    if a.breakeven:
+        panel, meta = P.load_cached_panel(u)
+        be = LC.breakeven_cost_multiplier(panel, _selected_or_exit(a), u, C.load_risk(), costs,
+                                          C.load_strategy().walkforward["exec_mode"])
+    note = ("Using local-simulator fills (circular): for plumbing tests only." if a.include_sim else
+            f"{len(df)} broker fills found." if len(df) else "No broker fills yet: nothing to learn from.")
+    LC.calibration_md(ests, df, costs, REPORTS / "costs_calibration.md", be, note)
+    for e in ests:
+        print(f"{e.cls:10s} n={e.n:4d} action={e.action:12s} {e.reason}")
+    if a.auto or a.apply:
+        applied = LC.apply_estimates(ests, a.by if a.apply else "", only_increases=not a.apply)
+        print("applied:", [x.cls for x in applied] or "none",
+              "(decreases are only applied with --apply --by NAME)" if a.auto else "")
     return 0
 
 
@@ -178,6 +290,11 @@ def cmd_nightly(a) -> int:
     from bot.monitor.weekly_review import write_weekly
     if pd.Timestamp.today().weekday() == 4 or a.weekly:
         print("weekly:", write_weekly(ROOT / "runs", REPORTS))
+    try:  # unattended learning step: only ever makes cost estimates MORE conservative
+        a.auto, a.apply, a.by, a.breakeven, a.include_sim = True, False, "", False, False
+        cmd_costs(a)
+    except Exception as e:  # noqa: BLE001
+        print(f"cost calibration skipped: {e}")
     cmd_gate(a)
     return rc
 
@@ -300,6 +417,26 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--approve", default="", help="your name: signs off Gate 1 for the KEEP strategies")
     s.set_defaults(fn=cmd_select)
     sub.add_parser("backtest").set_defaults(fn=cmd_backtest)
+    sub.add_parser("budget").set_defaults(fn=cmd_budget)
+    pr = sub.add_parser("propose")
+    pr.add_argument("file", help='JSON: {"strategy": "trend", "grid": {"sma": [120]}, "rationale": "..."}')
+    pr.set_defaults(fn=cmd_propose)
+    ln = sub.add_parser("learn")
+    ln.add_argument("--placebo", type=int, default=200)
+    ln.add_argument("--boot", type=int, default=500)
+    ln.set_defaults(fn=cmd_learn)
+    sub.add_parser("shadow").set_defaults(fn=cmd_shadow)
+    pm = sub.add_parser("promote")
+    pm.add_argument("id")
+    pm.add_argument("--approve", required=True, help="your name")
+    pm.set_defaults(fn=cmd_promote)
+    co = sub.add_parser("costs")
+    co.add_argument("--auto", action="store_true", help="apply cost INCREASES only (safe for unattended use)")
+    co.add_argument("--apply", action="store_true", help="apply increases and decreases (needs --by)")
+    co.add_argument("--by", default="")
+    co.add_argument("--breakeven", action="store_true", help="also compute the break-even cost multiplier")
+    co.add_argument("--include-sim", action="store_true", dest="include_sim")
+    co.set_defaults(fn=cmd_costs)
     sub.add_parser("holdout").set_defaults(fn=cmd_holdout)
     for name, fn in (("paper", cmd_paper), ("nightly", cmd_nightly)):
         q = sub.add_parser(name)

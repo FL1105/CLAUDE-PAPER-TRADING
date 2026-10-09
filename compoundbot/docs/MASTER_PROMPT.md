@@ -206,6 +206,18 @@ STEP 16 - Go-live preparation (documents and interface only; do NOT write or ena
   - Prepare the staged-capital plan in docs/GATE.md. Then STOP and report (human gate 3).
 </step_15_16>
 
+<learning>
+Goal: improve over time without fooling yourself. About 250 daily bars a year cannot support fast learning, and every variant tested on the same history spends statistical evidence. So learn costs first, count everything tried, and let only fresh data promote anything.
+
+L1. COST LEARNING. Record every fill with its reference price (session open) and fee. Per asset class compute a trimmed-mean total per-side cost with a bootstrap CI, shrunk toward the current model (about 30 pseudo-observations), bounded to 0.5x-2x per update. Exclude simulator fills (they equal the model by construction). Cost INCREASES may be applied automatically; DECREASES need >= 60 fills, a CI entirely below the model and an operator signature. Log every change and store a hash of the effective cost files in each run record. Report the break-even cost multiplier (how many times the modelled costs the book can bear before net Sharpe reaches zero) and the round-trip cost by order size including fixed fees.
+L2. RESEARCH BUDGET. Pre-register a cap on NEW (strategy, parameters) combinations per calendar quarter (default 24; the founding grid is free) and raise the Deflated-Sharpe bar as the quarter's budget is used (+0.02 per 8 combinations, capped at 0.99). Refuse an over-budget run BEFORE evaluating anything. The trial count behind the Deflated Sharpe is every combination ever tried. Re-evaluating known combinations on new data is free.
+L3. PROPOSALS. Humans or an LLM may only submit {strategy, grid of that strategy's own parameters, rationale}, validated against the registry (no risk, gate, path or live fields; max 3 per cycle; duplicates dropped).
+L4. SCREEN, THEN SHADOW. A cycle spends budget, runs the full walk-forward harness on the extended grid at the raised bar, and registers a challenger only if it is KEEP with genuinely new parameters. The challenger is simulated (no orders) beside the champion on sessions AFTER its data-through date.
+L5. PROMOTION. Only after >= 126 new sessions with the paired improvement's 95% CI lower bound > 0 at x1 and x2 costs and drawdown no worse than 1.2x. Promotion is an operator command that backs up the old selection and logs the evidence. Nothing promotes itself.
+L6. NEVER AUTOMATED: risk limits, the evidence gate, kill-switch state, live trading, key handling. No live reinforcement learning, no LLM in the trading path.
+L7. ACCEPT: tests show (a) a simulator-only history yields no cost update, (b) a 3x-worse cost history yields a bounded increase and a decrease is refused with few fills, (c) over-budget research is refused with nothing logged, (d) promotion is refused without evidence or a name and is reversible. A quiet year with zero promotions is a healthy outcome.
+</learning>
+
 <risk_layer>
 max_weight_per_asset: 25%
 crypto_sleeve_max: 10% of equity (0 disables)

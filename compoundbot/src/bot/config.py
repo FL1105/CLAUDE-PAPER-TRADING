@@ -107,6 +107,17 @@ class Strategy(BaseModel):
     walkforward: dict
 
 
+class ResearchBudget(Strict):
+    new_combos_per_quarter: int = Field(ge=0)
+    dsr_min_base: float = Field(gt=0.5, lt=1)
+    dsr_step: float = Field(ge=0, lt=0.5)
+    dsr_step_every: int = Field(ge=1)
+    dsr_min_cap: float = Field(gt=0.5, lt=1)
+    min_shadow_days: int = Field(ge=20)
+    shadow_n_boot: int = Field(ge=200)
+    max_proposals_per_cycle: int = Field(ge=1, le=10)
+
+
 class Schedule(Strict):
     timezone: str
     decision_time: str
@@ -124,7 +135,16 @@ def load_universe(path: Path | None = None) -> Universe:
 
 
 def load_costs(path: Path | None = None) -> Costs:
-    return Costs(**_load("costs.yaml", path))
+    """costs.yaml, with measured per-class overrides from config/costs_learned.yaml when that file
+    exists and is signed (approved_by). Pass an explicit path (or set COSTS_IGNORE_LEARNED=1) to skip."""
+    base = _load("costs.yaml", path)
+    lp = CFG / "costs_learned.yaml"
+    if path is None and lp.exists() and not os.environ.get("COSTS_IGNORE_LEARNED"):
+        learned = yaml.safe_load(lp.read_text(encoding="utf-8")) or {}
+        if str(learned.get("approved_by", "")).strip():
+            for k in ("per_side_bps", "spread_slippage_bps"):
+                base[k] = {**base[k], **(learned.get(k) or {})}
+    return Costs(**base)
 
 
 def load_risk(path: Path | None = None) -> Risk:
@@ -133,6 +153,10 @@ def load_risk(path: Path | None = None) -> Risk:
 
 def load_strategy(path: Path | None = None) -> Strategy:
     return Strategy(**_load("strategy.yaml", path))
+
+
+def load_budget(path: Path | None = None) -> ResearchBudget:
+    return ResearchBudget(**_load("research_budget.yaml", path))
 
 
 def load_schedule(path: Path | None = None) -> Schedule:

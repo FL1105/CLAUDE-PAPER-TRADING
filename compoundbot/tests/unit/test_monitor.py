@@ -53,7 +53,7 @@ def test_proposals_validated():
 
 def test_queue_caps_at_three_and_logs_rejections(tmp_path):
     reg = make_registry(load_strategy())
-    props = [{"strategy": "trend", "grid": {"sma": [120]}}] * 5 + [{"strategy": "bad", "grid": {}}]
+    props = [{"strategy": "trend", "grid": {"sma": [120 + i]}} for i in range(5)] + [{"strategy": "bad", "grid": {}}]
     acc = weekly_review.queue_hypotheses(props, reg, tmp_path / "q.jsonl")
     assert len(acc) == 3
     assert len((tmp_path / "q.jsonl").read_text().splitlines()) == 3

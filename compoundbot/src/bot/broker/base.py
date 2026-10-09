@@ -36,6 +36,8 @@ class Fill:
     cost_usd: float = 0.0
     status: str = "filled"  # filled | partial | rejected | open
     reason: str = ""
+    ref_price: float = 0.0  # price we compare the fill against (session open / quote); 0 = unknown
+    fee_usd: float = 0.0  # explicit fee reported by the broker, if any (0 = none or unknown)
 
 
 @dataclass

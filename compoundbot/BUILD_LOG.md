@@ -65,3 +65,13 @@ Not run: holdout and the 60-day soak (no real data, no time). No real-money adap
 - Cost inputs are estimates; real fees, spreads and crypto minimums may be worse.
 - The ladder re-risk rules, sleeve weighting and the vol-target cap are design choices not yet stress-tested on real regimes.
 - The synthetic planted-edge world is far stronger than reality; passing it proves the harness can detect an edge, not that one exists.
+
+## Learning loop (costs, research budget, shadow, promotion)
+Built: cost learning from fills (trimmed mean + bootstrap CI, shrinkage, bounded, increases automatic / decreases signed, history log,
+break-even cost multiplier, order-size cost table), `costs_learned.yaml` merged by `load_costs` only when signed, research budget
+(quarterly cap on new variants, rising Deflated-Sharpe bar, refuse-before-evaluating), proposal dedupe, learning cycle, shadow
+evaluation on post-registration sessions, operator-only promotion with backup and evidence log. CLI: budget, propose, learn, shadow,
+promote, costs. Docs: docs/LEARNING.md, RUNBOOK 3b. Master prompt gained a learning section.
+Measured (tests): simulator fills excluded; 3x-worse costs -> bounded increase; decreases refused with few fills; over-budget refused
+with nothing logged; promotion refused without evidence/name and reversible; identical challenger never promotable.
+Unverified: no real broker fills exist, so nothing has actually been learned yet.
