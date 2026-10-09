@@ -114,7 +114,7 @@ STEP 2 - Data layer.
   - cache.py: parquet files data/bars/<symbol>.parquet, incremental update, atomic writes.
   - calendar.py: exchange calendar for equities; 24/7 days for crypto.
   - quality.py: missing sessions, zero/negative prices, split-like jumps, stale bars, volume anomalies, cross-source disagreement. Writes reports/data_quality.md.
-  - synthetic.py: seeded generator for the whole universe (correlated returns, GARCH-like vol clustering, regime switches), with switches 'planted_edge' (trend) and 'null' (none). Used by tests and by the pipeline when real data is unavailable. Output is always tagged SYNTHETIC.
+  - synthetic.py: seeded generator for the whole universe (correlated returns, GARCH-like vol clustering, slow drift regimes), with switches 'planted_edge' (trend) and 'null' (none). A realistic edge is undetectable in ~18 simulated years (that is the point of the math section), so the planted edge must be deliberately strong and labelled as such. Used by tests and by the pipeline when real data is unavailable. Output is always tagged SYNTHETIC. Validate the research harness on both worlds: it should KEEP the planted edge most of the time and almost never KEEP the null.
   - Bias note: ETFs avoid most survivorship bias; do not backtest an asset before its inception date. List remaining biases in docs/ASSUMPTIONS.md.
   - ACCEPT: 'make data' builds the cache from real data when reachable, otherwise from import/synthetic with a clear banner; quality report has zero unexplained gaps; tests use a small fixture.
 </step_0_2>
@@ -160,7 +160,7 @@ STEP 8 - Portfolio construction.
 STEP 9 - Risk layer. Pure functions, near-100% branch coverage. Limits from risk.yaml:
   - max weight per asset 25%; gross <= 100%; crypto sleeve cap; no shorts, leverage or options.
   - Drawdown ladder, rules in <risk_layer>, including explicit re-risk and re-arm rules.
-  - Daily loss halt; order sanity checks (reject an order above max_weight + 5% of equity, above 1% of the asset's ADV, or priced > 3% from the last quote).
+  - Daily loss halt; order sanity checks (reject a BUY above max_weight + 5% of equity or above 1% of the asset's ADV; reject any order priced > 3% from the last quote). Risk-reducing SELLS are exempt from the size and ADV caps: a forced flatten must never be blocked by a cap (a drill caught exactly this). On HALT, flatten first, then engage the kill switch; a kill switch cancels waiting buys but lets sells go through.
   - Kill switch: file flag, CLI command, and a dashboard control; checked before EVERY order; state persists across restarts.
   - TESTS: hypothesis fuzz (random weights, NaNs, stale prices, huge numbers); no order may break any limit.
   - ACCEPT: fuzz passes; the kill-switch drill is an automated test.
@@ -175,8 +175,9 @@ STEP 10 - Broker adapters.
 
 STEP 11 - Daily runner and scheduler.
   - run/daily.py (idempotent, lock file, structured logs): refresh data -> quality check -> signals -> weights -> risk checks -> orders -> submit -> reconcile -> write runs/<date>/ (inputs hash, weights, orders, fills, equity).
+  - Timing must match the backtest: the runner computes signals from the close, orders FILL AT THE NEXT SESSION'S OPEN (the paper simulator queues them), and trades only on the same rebalance days as the backtest (weekly = last NYSE session of the week; a ladder level change forces a rebalance). Queued orders from a missed session expire; never fill them late. Filling at the same close that produced the signal is lookahead.
   - Scheduled after the US close via cron / launchd / Task Scheduler / apscheduler. Heartbeat file; alert on failure or missed run.
-  - ACCEPT: a dry run on the last 30 historical days reproduces the backtest weights exactly; a missed run recovers cleanly.
+  - ACCEPT: a dry run on the last 30 historical days reproduces the backtest weights exactly; paper-vs-replay daily tracking error on the same days is under 15 bps (SYNTHETIC check); a missed run recovers cleanly; a same-day re-run places no duplicate orders.
 </step_9_11>
 
 <step_12_14>

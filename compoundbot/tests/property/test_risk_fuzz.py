@@ -42,9 +42,10 @@ def test_check_order_accepts_only_safe_orders(qty, price, equity, adv, limit, si
     if chk.ok:
         assert all(math.isfinite(x) and x > 0 for x in (qty, price, equity))
         notional = qty * price
-        assert notional <= (RISK.max_weight_per_asset + RISK.order_cap_over_max_weight) * equity + 1e-6
-        if adv is not None and math.isfinite(adv) and adv > 0:
-            assert notional <= RISK.order_cap_adv_frac * adv + 1e-6
+        if side == "buy":  # reducing sells are exempt from size/ADV caps by design
+            assert notional <= (RISK.max_weight_per_asset + RISK.order_cap_over_max_weight) * equity + 1e-6
+            if adv is not None and math.isfinite(adv) and adv > 0:
+                assert notional <= RISK.order_cap_adv_frac * adv + 1e-6
         if limit is not None:
             assert abs(limit / price - 1) <= RISK.price_collar + 1e-9
         if side == "sell":
@@ -124,3 +125,10 @@ def test_killswitch_persists_and_blocks(tmp_path):
         ks.release("")
     ks.release("operator")
     ks.assert_clear()
+
+
+def test_forced_flatten_sell_is_not_blocked_by_size_cap():
+    chk = check_order("TLT", "sell", 100, 100.0, 99.5, 10_000.0, 1e6, RISK, current_value=10_000.0)
+    assert chk.ok  # 100% of equity, far above the 30% buy cap and 1% of ADV
+    assert not check_order("TLT", "buy", 100, 100.0, 100.5, 10_000.0, None, RISK).ok
+    assert not check_order("TLT", "sell", 101, 100.0, 99.5, 10_000.0, None, RISK, current_value=10_000.0).ok

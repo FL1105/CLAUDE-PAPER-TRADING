@@ -46,3 +46,9 @@ def combine(
             scaled.loc[over, crypto_cols] = (
                 scaled.loc[over, crypto_cols].div(tot[over], axis=0) * risk.crypto_sleeve_max)
     return scaled.replace([np.inf, -np.inf], 0.0), alloc
+
+
+def book_rebalance(selected: dict, registry: dict) -> str:
+    """Book-level schedule: daily if any selected sleeve trades daily (mean reversion), else weekly.
+    Used identically by the backtest and the live runner so their trade days match."""
+    return "daily" if any(registry[n].rebalance == "daily" for n in selected) else "weekly"

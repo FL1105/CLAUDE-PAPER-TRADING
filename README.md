@@ -87,3 +87,7 @@ dashboard.html          single-file offline dashboard (open locally; phone frien
 scripts/demo_report.py  synthetic demo report to preview the dashboard
 tests/                  unit tests; fixtures/assumed (hand-written), fixtures/live (from probe)
 ```
+
+---
+**See also:** [`compoundbot/`](compoundbot/README.md), a separate multi-asset, paper-first trading system (ETFs and
+capped crypto, daily bars, volatility targeting). It shares nothing with polybot.

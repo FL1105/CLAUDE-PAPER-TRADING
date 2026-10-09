@@ -30,3 +30,17 @@ Python 3.13 in a venv; pandas 3.x, numpy 2.x, scipy, scikit-learn, pydantic 2.
 - NYSE holidays come from a built-in rule set (calendar.py); pandas_market_calendars is not required.
 - Real broker data/API field names are NOT verified (network blocked). `alpaca_*` modules are marked
   UNVERIFIED and must be checked against current docs before the first real paper run.
+
+## Execution timing (paper runner)
+- The runner executes after the close using closing data. Orders are queued and fill at the NEXT session's open
+  (`PaperLocalBroker(execution="next_open")`), matching the backtest's `next_open` mode. Queued orders from a missed
+  session expire instead of filling late. A kill switch cancels waiting buys but lets risk-reducing sells settle.
+- Trade days: weekly (last NYSE session of the week) unless a daily sleeve (mean reversion) is selected. A change in
+  the drawdown-ladder multiplier forces a rebalance. Same rule in the backtest and the runner.
+- Orders use limit prices 90% of the way to the 3% price collar (effectively market-on-open with a sanity bound).
+- Paper fills are idealised; paper-vs-replay tracking error (measured on SYNTHETIC data: ~5 bps daily) tests plumbing,
+  not real slippage.
+
+## Synthetic worlds
+`planted_edge` worlds use edge_strength=4 (equity drift regimes of +/-40%/yr). That is far stronger than reality and
+makes SYNTHETIC baselines look odd (e.g. SPY drawdowns above 80%). It exists so the harness has something detectable.

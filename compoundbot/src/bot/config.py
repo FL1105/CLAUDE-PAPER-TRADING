@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ROOT = Path(__file__).resolve().parents[2]
+# BOT_HOME lets demos and tests run in a scratch folder (it must contain config/ and docs/)
+ROOT = Path(os.environ.get("BOT_HOME") or Path(__file__).resolve().parents[2])
 CFG = ROOT / "config"
 
 CLASSES = {"equity", "bond", "commodity", "reit", "crypto"}

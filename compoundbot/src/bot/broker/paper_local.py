@@ -10,7 +10,13 @@ class PaperLocalBroker(Broker):
     mode = "paper"
 
     def __init__(self, costs: Costs, universe: Universe, cash: float | None = None,
-                 fractional: bool = True):
+                 fractional: bool = True, execution: str = "next_open"):
+        """execution="next_open": orders are queued and fill at the next session's open (call
+        `settle(open_prices)`), matching the backtest timing. "immediate": fill at the current quote."""
+        if execution not in ("next_open", "immediate"):
+            raise ValueError("execution must be next_open or immediate")
+        self.execution = execution
+        self.pending: list[Order] = []
         self.costs, self.universe = costs, universe
         self.cash = float(cash if cash is not None else costs.start_capital_usd)
         self.positions: dict[str, float] = {}
@@ -20,11 +26,13 @@ class PaperLocalBroker(Broker):
         self.cost_paid = 0.0
 
     def dump(self) -> dict:
-        return {"cash": self.cash, "positions": self.get_positions(), "cost_paid": self.cost_paid}
+        return {"cash": self.cash, "positions": self.get_positions(), "cost_paid": self.cost_paid,
+                "pending": [vars(o) for o in self.pending]}
 
     def load(self, d: dict) -> None:
         self.cash, self.positions = float(d["cash"]), dict(d["positions"])
         self.cost_paid = float(d.get("cost_paid", 0.0))
+        self.pending = [Order(**o) for o in d.get("pending", [])]
 
     # market data is pushed in by the runner (closing / opening prices)
     def set_quotes(self, quotes: dict[str, float]) -> None:
@@ -43,9 +51,26 @@ class PaperLocalBroker(Broker):
     def submit_order(self, order: Order) -> Fill:
         if order.client_order_id in self.fills:  # idempotent
             return self.fills[order.client_order_id]
-        px = self.quotes.get(order.symbol)
+        for q in self.pending:
+            if q.client_order_id == order.client_order_id:
+                return Fill(q.client_order_id, q.symbol, q.side, 0.0, 0.0, status="open")
+        if self.execution == "next_open":
+            self.pending.append(order)
+            return Fill(order.client_order_id, order.symbol, order.side, 0.0, 0.0, status="open")
+        return self._execute(order, self.quotes.get(order.symbol))
+
+    def settle(self, open_prices: dict[str, float]) -> list[Fill]:
+        """Fill queued orders at the session open (sells first, as the order planner sorts them)."""
+        queue, self.pending = self.pending, []
+        out = []
+        for o in queue:
+            f = self._execute(o, open_prices.get(o.symbol))
+            out.append(f)
+        return out
+
+    def _execute(self, order: Order, px: float | None) -> Fill:
         if px is None or px <= 0:
-            return self._reject(order, "no quote")
+            return self._reject(order, "no price")
         qty = order.qty if self.fractional else float(int(order.qty))
         if qty <= 0:
             return self._reject(order, "qty rounds to zero")
@@ -82,7 +107,14 @@ class PaperLocalBroker(Broker):
         return f
 
     def cancel(self, client_order_id: str) -> bool:
-        return False  # everything fills or rejects immediately
+        n = len(self.pending)
+        self.pending = [q for q in self.pending if q.client_order_id != client_order_id]
+        return len(self.pending) < n
 
     def get_order(self, client_order_id: str) -> Fill | None:
-        return self.fills.get(client_order_id)
+        if client_order_id in self.fills:
+            return self.fills[client_order_id]
+        for q in self.pending:
+            if q.client_order_id == client_order_id:
+                return Fill(q.client_order_id, q.symbol, q.side, 0.0, 0.0, status="open")
+        return None

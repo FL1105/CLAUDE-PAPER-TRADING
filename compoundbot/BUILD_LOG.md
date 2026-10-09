@@ -32,3 +32,36 @@ Built: limits (clip weights, order checks), kill switch (file flag, persistent),
 (UNVERIFIED, pinned to the paper host), live stub (raises), order planner, reconciliation, idempotent daily runner with state + run records.
 Measured (tests): hypothesis fuzz on limits and ladder, kill-switch drill, mocked-HTTP broker flow, idempotent re-run, stale-data block,
 30-day replay equals full-history targets, missed-day recovery, safety scan.
+
+## Steps 12-14 - Monitoring, weekly review, dashboard
+Built: drift monitor (rolling Sharpe/vol band, tracking error, auto cash mode), weekly review writer, hypothesis queue with strict
+validation (can name only a registered strategy + its own grid; never risk/gate/live), challenger-beats-champion test (CI lower bound > 0
+at x1 and x2 costs), gate bookkeeping (I1-I4 + edge checklist), drills (kill switch, drawdown halt, crash recovery), FastAPI dashboard
+(read-only plus token-protected kill/pause; no endpoint can change limits or enable live) with a single static page.
+Step 12 (ML meta-model) skipped by design.
+
+## Steps 15-16 - holdout, paper soak, go-live prep
+Built: `holdout` command (single use; refuses a second run), `paper`/`nightly`/`gate` commands, RUNBOOK, GATE, SOURCES.
+Not run: holdout and the 60-day soak (no real data, no time). No real-money adapter exists (checklist only, by design).
+
+## Defects found by the tests/drills while building (all fixed)
+1. Drawdown metric ignored the starting equity as a peak.
+2. Master-prompt Sharpe-proof times were wrong (SR^2/2 term); corrected to SE = 1/sqrt(T).
+3. Backtest cost bookkeeping let fully invested weights drift above 1.0 after fees.
+4. Forced flatten after a HALT was blocked by the order-size cap, and the kill switch engaged before the sells were sent.
+5. The first runner filled orders at the same close that produced the signal (lookahead). Now queued and filled at the next open,
+   trade days match the backtest, stale queued orders expire.
+6. Gate checklist counted REJECTED strategies' failures against the portfolio gate.
+
+## Measured (SYNTHETIC only)
+- Harness acceptance: planted edge KEEP 9/12, null 0/12 false KEEP (docs/results/harness_acceptance.md).
+- Paper runner vs engine replay, 60-120 sessions: daily tracking error ~5 bps (gate threshold 15 bps).
+- Full pipeline on SYNTHETIC data (data -> research -> select -> backtest -> 25-day paper replay -> drills -> gate): runs end to end.
+  Gate correctly reports not passed (60-day soak and replay checks pending, research is SYNTHETIC).
+
+## WHAT COULD I BE WRONG ABOUT?
+- Every performance number here is SYNTHETIC. No claim about real-market profitability is supported.
+- Alpaca adapters were written without network access: endpoints and field names are UNVERIFIED.
+- Cost inputs are estimates; real fees, spreads and crypto minimums may be worse.
+- The ladder re-risk rules, sleeve weighting and the vol-target cap are design choices not yet stress-tested on real regimes.
+- The synthetic planted-edge world is far stronger than reality; passing it proves the harness can detect an edge, not that one exists.

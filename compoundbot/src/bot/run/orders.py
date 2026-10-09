@@ -58,11 +58,11 @@ def plan_orders(
                 continue
         if delta_v > 0:
             side, qty = "buy", _round_qty(delta_v / px, fractional, False)
-            limit = px * (1 + min(0.005, risk.price_collar / 2))
+            limit = px * (1 + 0.9 * risk.price_collar)
         elif delta_v < 0:
             side = "sell"
             qty = _round_qty(min(-delta_v / px, cur_q) if not exit_all else cur_q, fractional, exit_all)
-            limit = px * (1 - min(0.005, risk.price_collar / 2))
+            limit = px * (1 - 0.9 * risk.price_collar)
         else:
             continue
         if qty <= 0:

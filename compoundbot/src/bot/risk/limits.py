@@ -48,19 +48,23 @@ def check_order(
     symbol: str, side: str, qty: float, price: float, limit_price: float | None, equity: float,
     adv_usd: float | None, risk: Risk, current_value: float = 0.0,
 ) -> OrderCheck:
-    """Reject orders that are non-finite, too large, too big vs ADV, or priced away from the quote."""
+    """Reject orders that are non-finite, too large, too big vs ADV, or priced away from the quote.
+    Sells that reduce an existing position are exempt from the size and ADV caps (a forced
+    flatten must never be blocked by a cap); they still need valid numbers and a sane limit."""
     for name, v in (("qty", qty), ("price", price), ("equity", equity)):
         if not math.isfinite(v) or v <= 0:
             return OrderCheck(False, f"invalid {name}: {v}")
     notional = qty * price
     cap = (risk.max_weight_per_asset + risk.order_cap_over_max_weight) * equity
-    if notional > cap + 1e-9:
-        return OrderCheck(False, f"order {notional:.0f} exceeds cap {cap:.0f}")
-    if side == "sell" and qty * price > current_value * 1.0001 + 1e-9:
-        return OrderCheck(False, "sell exceeds current position (no shorts)")
-    if adv_usd is not None and math.isfinite(adv_usd) and adv_usd > 0:
-        if notional > risk.order_cap_adv_frac * adv_usd:
-            return OrderCheck(False, f"order is {notional / adv_usd:.2%} of ADV")
+    if side == "sell":
+        if notional > current_value * 1.0001 + 1e-9:
+            return OrderCheck(False, "sell exceeds current position (no shorts)")
+    else:
+        if notional > cap + 1e-9:
+            return OrderCheck(False, f"order {notional:.0f} exceeds cap {cap:.0f}")
+        if adv_usd is not None and math.isfinite(adv_usd) and adv_usd > 0:
+            if notional > risk.order_cap_adv_frac * adv_usd:
+                return OrderCheck(False, f"order is {notional / adv_usd:.2%} of ADV")
     if limit_price is not None:
         if not math.isfinite(limit_price) or limit_price <= 0:
             return OrderCheck(False, "invalid limit price")
