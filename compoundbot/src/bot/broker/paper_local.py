@@ -64,8 +64,10 @@ class PaperLocalBroker(Broker):
         queue, self.pending = self.pending, []
         out = []
         for o in queue:
-            f = self._execute(o, open_prices.get(o.symbol))
-            out.append(f)
+            if open_prices.get(o.symbol) is None:  # no open print for this session: stays queued
+                self.pending.append(o)
+                continue
+            out.append(self._execute(o, open_prices[o.symbol]))
         return out
 
     def _execute(self, order: Order, px: float | None) -> Fill:

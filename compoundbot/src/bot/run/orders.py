@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 
 from bot.broker.base import Broker, Fill, Order
 from bot.config import Costs, Risk, Universe
-from bot.risk.killswitch import KillSwitch
+from bot.risk.killswitch import KillSwitch, KillSwitchEngaged
 from bot.risk.limits import check_order, clip_weights
 
+DUST_USD = 1.0  # positions worth less than this are ignored (rounding leftovers cannot be sold)
 CASH_BUFFER = 0.002  # keep a sliver of equity in cash so slippage cannot cause rejects
 
 
@@ -48,6 +49,8 @@ def plan_orders(
             continue
         cur_q = positions.get(s, 0.0)
         cur_v = cur_q * px
+        if 0 < cur_v < DUST_USD and w.get(s, 0.0) == 0:
+            continue
         tgt_v = w.get(s, 0.0) * equity * (1 - CASH_BUFFER)
         delta_v = tgt_v - cur_v
         exit_all = w.get(s, 0.0) == 0 and cur_q > 0
@@ -76,11 +79,22 @@ def plan_orders(
     return orders, notes
 
 
-def execute(orders: list[Order], broker: Broker, kill: KillSwitch) -> ExecReport:
+def execute(orders: list[Order], broker: Broker, kill: KillSwitch, reducing_only: bool = False) -> ExecReport:
+    """Submit orders one by one. A broker exception on one order is contained: the order is recorded as
+    `open` (it may exist at the broker, so the next run re-checks it by client id) and the rest go on.
+    reducing_only=True lets pure SELL batches through an engaged kill switch (forced flatten)."""
     rep = ExecReport(planned=list(orders))
     for o in orders:
-        kill.assert_clear()  # checked before EVERY order
-        f = broker.submit_order(o)
+        if not (reducing_only and o.side == "sell"):
+            kill.assert_clear()  # checked before EVERY order
+        try:
+            f = broker.submit_order(o)
+        except KillSwitchEngaged:
+            raise
+        except Exception as e:  # noqa: BLE001
+            f = Fill(o.client_order_id, o.symbol, o.side, 0.0, 0.0, status="open",
+                     reason=f"submit error, re-check next run: {type(e).__name__}: {e}")
+            rep.notes.append(f"{o.symbol} {o.side}: {f.reason}")
         rep.fills.append(f)
         if f.status == "rejected":
             rep.notes.append(f"{o.symbol} {o.side} rejected: {f.reason}")

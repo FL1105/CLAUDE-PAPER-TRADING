@@ -3,6 +3,20 @@
 All commands run from `compoundbot/` inside a virtualenv (`make setup`). On Windows use `python -m bot.cli ...`
 and Task Scheduler for the nightly job. Nothing here trades real money: the live adapter is a stub that raises.
 
+## 0. Tonight: the fast path
+1. Install Python 3.11+ and git. Clone the repo, `cd compoundbot`.
+2. Copy `.env.example` to `.env` and fill in your **paper** Alpaca key and secret (Alpaca dashboard, Paper Trading, API keys).
+   Do not paste them into chat. Use paper keys only.
+3. Run one command:
+   - Windows: `powershell -ExecutionPolicy Bypass -File .\scripts\tonight.ps1`
+   - Mac/Linux: `bash scripts/tonight.sh`
+   It runs the tests, checks your key against the real Alpaca paper API (`probe`, read-only), downloads data
+   (Yahoo by default; `SRC=alpaca` or `SRC=csv` to change), runs the research, and writes `reports/TONIGHT_SUMMARY.md`.
+4. Paste `reports/TONIGHT_SUMMARY.md` back to Claude (no keys, no account ids in it).
+5. Optional once the probe passes: `python -m bot.cli probe --roundtrip` places and unwinds ONE 1-share PAPER order
+   to verify order formatting end to end. Run it during market hours for a real fill.
+Nothing trades until you run `select --approve "<you>"` and sign `docs/risk_ack.txt`.
+
 ## 1. First run on YOUR machine (this is where real research happens)
 1. `python -m venv .venv && . .venv/bin/activate && make setup && make test`
 2. Real data, easiest first:

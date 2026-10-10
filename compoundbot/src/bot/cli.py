@@ -430,6 +430,63 @@ def cmd_dash(a) -> int:
     return 0
 
 
+def cmd_summary(a) -> int:
+    """One file to paste back: data quality, Alpaca probe, research verdicts, portfolio risk, cost calibration."""
+    lines = ["# Tonight summary", ""]
+    meta_p = ROOT / "data" / "bars" / "_source.json"
+    if meta_p.exists():
+        meta = json.loads(meta_p.read_text())
+        lines += [f"Data: tag **{meta['tag']}**, {meta['start']} to {meta['end']}, missing symbols: "
+                  f"{meta.get('missing') or 'none'}", ""]
+    dq = REPORTS / "data_quality.md"
+    if dq.exists():
+        lines += ["## Data quality (first lines)", *dq.read_text().splitlines()[:25], ""]
+    pj = REPORTS / "alpaca_probe.json"
+    if pj.exists():
+        pr = json.loads(pj.read_text())
+        lines += ["## Alpaca probe", f"passed {pr['summary']['passed']}, failed {pr['summary']['failed'] or 'none'}"]
+        for x in pr["checks"]:
+            if not x["ok"]:
+                lines.append(f"- FAIL {x['check']}: HTTP {x['status_code']} {x['missing_keys'] or x['note']}")
+        if pr.get("roundtrip"):
+            lines += [f"- round trip: {s}" for s in pr["roundtrip"]["steps"]]
+        lines.append("")
+    rj = REPORTS / "research_v1.json"
+    if rj.exists():
+        r = json.loads(rj.read_text())
+        lines += [f"## Research ({r['tag']}, {r['n_trials']} trials counted)"]
+        for n, o in r["outcomes"].items():
+            fails = [c["id"] for c in o["criteria"] if not c["pass"]]
+            lines.append(f"- {n}: **{o['verdict']}** params {o['params']} OOS Sharpe {o['oos_sharpe']:.2f}; "
+                         f"failed gates {fails or 'none'}")
+        lines.append("")
+    for name in ("baselines.md", "portfolio_v1.md", "costs_calibration.md"):
+        f = REPORTS / name
+        if f.exists():
+            lines += [f"## {name}", *f.read_text().splitlines()[:30], ""]
+    out = REPORTS / "TONIGHT_SUMMARY.md"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines[:60]))
+    print(f"\nwritten to {out} (contains no keys or account ids)")
+    return 0
+
+
+def cmd_probe(a) -> int:
+    import os
+
+    from bot.broker.probe import render, run_probe, write_probe
+    kid, sec = os.environ.get("ALPACA_PAPER_KEY_ID", ""), os.environ.get("ALPACA_PAPER_SECRET", "")
+    if not (kid and sec):
+        print("Set ALPACA_PAPER_KEY_ID and ALPACA_PAPER_SECRET in .env (PAPER keys only).")
+        return 1
+    res = run_probe(kid, sec, roundtrip=a.roundtrip)
+    write_probe(res, REPORTS / "alpaca_probe.json")
+    print(render(res))
+    print(f"\n{res['summary']['passed']} checks passed; failed: {res['summary']['failed'] or 'none'}. "
+          f"Redacted details in reports/alpaca_probe.json (safe to share).")
+    return 0 if not res["summary"]["failed"] else 2
+
+
 def cmd_check(a) -> int:
     from bot.config import check_risk_hash
     print("risk hash ok:", check_risk_hash())
@@ -499,6 +556,11 @@ def main(argv: list[str] | None = None) -> int:
     ds.add_argument("--port", type=int, default=8765)
     ds.set_defaults(fn=cmd_dash)
     sub.add_parser("check").set_defaults(fn=cmd_check)
+    pb = sub.add_parser("probe", help="check your Alpaca PAPER key against the real API (read-only)")
+    pb.add_argument("--roundtrip", action="store_true", help="also place and unwind ONE 1-share PAPER order")
+    pb.set_defaults(fn=cmd_probe)
+    sub.add_parser("summary", help="write reports/TONIGHT_SUMMARY.md from whatever reports exist").set_defaults(
+        fn=cmd_summary)
     a = p.parse_args(argv)
     return int(a.fn(a) or 0)
 

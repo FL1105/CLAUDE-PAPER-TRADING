@@ -94,3 +94,21 @@ Unverified: no real broker fills exist, so nothing has actually been learned yet
 Minor: smoothed one-sided paired-bootstrap p-value, proposal values must be finite/positive/integer-typed, zero-length walk-forward and
 holdout windows rejected, proposals that crash after spending budget are closed, naive datetimes read in the schedule timezone.
 Added: Yahoo Finance data provider (UNVERIFIED, mocked tests) so real data needs no manual CSV collection.
+
+## Adversarial review round 2 (broker adapter, order timing, data): 11 findings, all fixed with regression tests
+1. Alpaca limit prices had sub-penny precision (would be rejected): now rounded to the tick in the safe direction.
+2. Alpaca reports crypto positions as BTCUSD: now mapped back to BTC/USD (else the bot re-buys every rebalance).
+3. Crypto daily bars were labelled by their UTC start day, leaking the close (~19:00 ET) into the same day's 16:00 ET
+   decision: now labelled by the date the close became known (+1 day). Limitation documented in ASSUMPTIONS.
+4. A drawdown HALT now re-issues flatten sells each run until flat (manual kills still stop everything).
+5. Queued orders only settle against THIS session's own open print; a stale feed can no longer fill them at an old price.
+   Data must now have the asof bar (max lag 0).
+6. A broker error on one order no longer loses the others; orders live at the broker are recorded even if a later step raises.
+7. `data` clears the previous cache first (no synthetic bars under a MEASURED tag), lists missing symbols, requires SPY/IEF/BIL.
+8. Aligned series never extend past a symbol's last real bar, so a dead feed cannot look fresh.
+9. Notes explaining a blocked run were being overwritten; fixed.
+10. Alpaca quantities are floored, never rounded up; dust positions (< $1) no longer trigger exit orders forever.
+11. A failing alert webhook is now reported as failed.
+Also found while testing: stale-order expiry used the last completed run date; now uses the date the orders were submitted.
+Added for the first real-data session: `probe` (read-only Alpaca check, optional 1-share paper round trip, redacted output),
+`summary` (one file to paste back), scripts/tonight.sh and tonight.ps1.

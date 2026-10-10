@@ -87,6 +87,7 @@ class RunState:
     last_mult: float = 1.0
     start_of_day_equity: float | None = None
     pending_ids: list = field(default_factory=list)  # orders submitted last run, not yet filled
+    pending_date: str | None = None  # session on which the newest pending orders were submitted
     positions_snapshot: dict = field(default_factory=dict)  # positions at the end of the last run
 
 
@@ -193,16 +194,20 @@ def run_daily(
         req_all = [s for s in universe.symbols if s in close.columns and close[s].notna().any()]
         px = quotes or {s: float(close[s].dropna().iloc[-1]) for s in req_all}
         opens = panel.get("open")
-        open_px = ({s: float(opens[s].loc[:asof].dropna().iloc[-1]) for s in req_all
-                    if s in opens and opens[s].loc[:asof].notna().any()}
-                   if opens is not None else dict(px))
+        if opens is None:
+            open_px = dict(px)
+        elif asof in opens.index:  # ONLY this session's own open print: a stale feed must never settle orders
+            row = opens.loc[asof]
+            open_px = {s: float(row[s]) for s in req_all if s in row.index and pd.notna(row[s])}
+        else:
+            open_px = {}
         first_run_of_day = st.last_run_date != run_id
         settled: list = []
-        if first_run_of_day and st.pending_ids and st.last_run_date and \
-                session_lag(st.last_run_date, asof) > 1:
+        if first_run_of_day and st.pending_ids and st.pending_date and \
+                session_lag(st.pending_date, asof) > 1:
             for oid in st.pending_ids:  # day orders from a missed session expire; never fill them late
                 broker.cancel(oid)
-            notes.append(f"expired {len(st.pending_ids)} stale queued orders from {st.last_run_date}")
+            notes.append(f"expired {len(st.pending_ids)} stale queued orders from {st.pending_date}")
             st.pending_ids = []
         if first_run_of_day and st.pending_ids:
             if kill.is_engaged():  # a kill switch cancels waiting BUYS; risk-reducing sells still go
@@ -240,22 +245,43 @@ def run_daily(
         start_eq = st.start_of_day_equity or acct.equity
         try:
             if kill.is_engaged():
-                res.status, res.notes = "killed", [f"kill switch: {kill.info()}"]
+                info = kill.info() or {}
+                res.status = "killed"
+                notes.append(f"kill switch: {info}")
+                if info.get("by") == "ladder" and broker.get_positions():
+                    # a drawdown HALT must end flat: re-issue any flatten sells that were rejected or expired
+                    flat, flat_notes = plan_orders({}, broker.get_positions(), px, acct.equity, risk, costs,
+                                                   universe, run_id + "F")
+                    sells = [o for o in flat if o.side == "sell"]
+                    rep = execute(sells, broker, kill, reducing_only=True) if sells else ExecReport()
+                    res.report = rep
+                    notes += flat_notes + rep.notes + [f"re-issued {len(sells)} flatten sells after HALT"]
+                    new_open = [f.client_order_id for f in rep.fills if f.status == "open"]
+                    st.pending_ids = new_open + [i for i in st.pending_ids if broker.get_order(i) is not None
+                                                 and broker.get_order(i).status == "open"
+                                                 and i not in new_open]
+                    if new_open:
+                        st.pending_date = run_id
+                res.notes = notes
                 return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker,
                                completed=False)
             req = [s for s in universe.symbols if s in close.columns]
             latest = {s: close[s].dropna().index.max() for s in req if close[s].notna().any()}
-            ok, bad = data_healthy(latest, [s for s in req if close[s].notna().any()], asof, 1,
+            ok, bad = data_healthy(latest, [s for s in req if close[s].notna().any()], asof, 0,
                                    session_lag)
             if not ok:
-                res.status, res.notes = "data_unhealthy", [f"stale or missing data: {bad}"]
+                res.status = "data_unhealthy"
+                notes.append(f"stale or missing data: {bad}")
+                res.notes = notes
                 return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker,
                                completed=False)
             if selected is None:
                 try:
                     selected = load_selected()
                 except (FileNotFoundError, PermissionError) as e:
-                    res.status, res.notes = "no_selection", [str(e)]
+                    res.status = "no_selection"
+                    notes.append(str(e))
+                    res.notes = notes
                     return _finish(res, st, state_dir, runs_dir, run_id, close, {}, tag, ladder, broker,
                                completed=False)
             weights, _alloc = compute_targets(close, selected, universe, risk, tail=LIVE_LOOKBACK_ROWS)
@@ -295,6 +321,12 @@ def run_daily(
                 orders = [o for o in orders if o.side == "sell"]  # flatten / no new entries
             rep = execute(orders, broker, kill) if orders else ExecReport()
             res.report = rep
+            # record what is live at the broker BEFORE anything else can fail
+            new_open = [f.client_order_id for f in rep.fills if f.status == "open"]
+            st.pending_ids = new_open + [i for i in st.pending_ids if broker.get_order(i)
+                                         and broker.get_order(i).status == "open" and i not in new_open]
+            if new_open:
+                st.pending_date = run_id
             if res.status == "halted":
                 kill.engage(f"drawdown HALT at {run_id}", by="ladder")
             # immediate fills (execution="immediate" brokers) must reconcile right away; queued ones
@@ -303,15 +335,20 @@ def run_daily(
             for f in immediate:
                 if not f.ref_price:
                     f.ref_price = px.get(f.symbol, 0.0)
+            notes += rep.notes
             res.mismatches += reconcile(expected_after(positions, immediate), broker.get_positions())
-            st.pending_ids = [f.client_order_id for f in rep.fills if f.status == "open"] + \
-                [i for i in st.pending_ids if broker.get_order(i) and broker.get_order(i).status == "open"
-                 and i not in {f.client_order_id for f in rep.fills}]
             if res.mismatches:
                 notes.append(f"UNRECONCILED: {[asdict(m) for m in res.mismatches]}")
             res.equity = broker.get_account().equity
         except Exception as e:  # noqa: BLE001
-            res.status, notes = "error", notes + [f"{type(e).__name__}: {e}"]
+            res.status = "error"
+            notes.append(f"{type(e).__name__}: {e}")
+            res.notes = notes
+            if res.report is not None:  # orders may be live at the broker: keep track of them
+                try:
+                    _finish(res, st, state_dir, runs_dir, run_id, close, res.weights, tag, ladder, broker)
+                except Exception:  # noqa: BLE001
+                    pass
             raise
         finally:
             res.notes = notes

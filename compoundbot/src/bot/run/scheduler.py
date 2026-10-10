@@ -63,7 +63,8 @@ def alert(message: str, post: Callable | None = None) -> bool:
     try:
         if post is None:
             import httpx
-            post = lambda u, body: httpx.post(u, json=body, timeout=10)  # noqa: E731
+            def post(u, body):
+                httpx.post(u, json=body, timeout=10).raise_for_status()
         post(url, {"text": f"CompoundBot: {message}"})
         return True
     except Exception as e:  # noqa: BLE001

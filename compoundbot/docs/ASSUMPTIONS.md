@@ -44,3 +44,11 @@ Python 3.13 in a venv; pandas 3.x, numpy 2.x, scipy, scikit-learn, pydantic 2.
 ## Synthetic worlds
 `planted_edge` worlds use edge_strength=4 (equity drift regimes of +/-40%/yr). That is far stronger than reality and
 makes SYNTHETIC baselines look odd (e.g. SPY drawdowns above 80%). It exists so the harness has something detectable.
+
+## Crypto timing (known limitation)
+A crypto daily bar stamped D (UTC) closes at 00:00 UTC D+1 = 19:00/20:00 New York on day D, after the 16:00 equity
+decision time. Bars are therefore labelled by the date the close became known (D+1) so nothing leaks forward. The price
+the crypto sleeve decides on is about 20 hours old, and the backtest "open" fill equals that same stale instant, so a
+real fill ~20 h later (crypto vol ~65%/yr, about 3.4% a day) is NOT modelled; it should be zero-mean but adds noise.
+Fix when real data exists: use intraday (hourly) crypto bars sampled at 16:00 New York. Until then treat the crypto
+sleeve's backtest as optimistic about execution and keep it small (cap 10%).

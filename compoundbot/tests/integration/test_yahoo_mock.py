@@ -27,7 +27,8 @@ def test_yahoo_parses_and_adjusts():
     c, h = _client(_payload())
     df = YahooProvider(c).bars("BTC/USD", "2024-01-01", "2024-01-31")
     assert "BTC-USD" in str(h.last.url)  # crypto symbol mapped
-    assert list(df.index.strftime("%Y-%m-%d")) == ["2024-01-02", "2024-01-03", "2024-01-04"]
+    # crypto bars are relabelled to the date the close became known (UTC bar day + 1): no lookahead
+    assert list(df.index.strftime("%Y-%m-%d")) == ["2024-01-03", "2024-01-04", "2024-01-05"]
     assert list(df["close"]) == [50, 50, 52] and df["open"].iloc[0] == 50  # day-1 prices adjusted by adj/close
     assert list(df["volume"]) == [10, 20, 30]
 
@@ -47,3 +48,9 @@ def test_yahoo_error_payload_raises_clearly():
     c, _ = _client({}, status=429)
     with pytest.raises(httpx.HTTPStatusError):
         YahooProvider(c).bars("SPY", "2024-01-01", "2024-01-31")
+
+
+def test_yahoo_equity_dates_are_not_shifted():
+    c, _ = _client(_payload())
+    df = YahooProvider(c).bars("SPY", "2024-01-01", "2024-01-31")
+    assert list(df.index.strftime("%Y-%m-%d")) == ["2024-01-02", "2024-01-03", "2024-01-04"]
